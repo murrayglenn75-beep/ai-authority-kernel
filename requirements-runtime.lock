@@ -1,0 +1,5 @@
+# Versions validated for the AAK v0.9.0 Git Bash workflow.
+cryptography==50.0.1
+cffi==2.1.1
+pycparser==3.0
+

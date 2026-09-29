@@ -1,0 +1,66 @@
+name: defensive-verification
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -r requirements-runtime.lock
+      - run: python -m pip install --no-deps -e .
+      - run: python -m unittest discover -s tests -q
+      - run: AAK_ASSURANCE_ATTEMPTS=100000 PYTHONPATH=. python tests/assurance_red_team.py
+      - run: AAK_COMPOUND_ATTEMPTS=100000 PYTHONPATH=. python tests/compound_red_team.py
+      - run: AAK_ACTION_GATEWAY_ATTEMPTS=100000 PYTHONPATH=. python tests/action_gateway_red_team.py
+      - run: AAK_STAGING_ATTEMPTS=100000 PYTHONPATH=. python tests/staging_red_team.py
+      - run: AAK_DISTRIBUTED_ATTEMPTS=100000 PYTHONPATH=. python tests/distributed_services_red_team.py
+      - run: AAK_SERVICE_ATTEMPTS=100000 PYTHONPATH=. python tests/service_boundary_red_team.py
+      - run: AAK_REVERSE_ATTEMPTS=100000 PYTHONPATH=. python tests/reverse_path_red_team.py
+
+  windows-compatibility:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -r requirements-runtime.lock
+      - run: python -m pip install --no-deps -e .
+      - run: python -W error::ResourceWarning -m unittest discover -s tests -q
+
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip build
+      - run: python -m build --wheel
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel
+          path: dist/*.whl
+          if-no-files-found: error

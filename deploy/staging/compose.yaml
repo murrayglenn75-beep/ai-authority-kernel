@@ -1,0 +1,65 @@
+name: aak-staging
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: aak
+      POSTGRES_USER: aak
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    volumes:
+      - authority_state:/var/lib/postgresql/data
+      - ./postgres/001_authority.sql:/docker-entrypoint-initdb.d/001_authority.sql:ro
+    networks: [authority]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aak -d aak"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    read_only: true
+    tmpfs: [/run/postgresql, /tmp]
+    security_opt: [no-new-privileges:true]
+
+  opa:
+    image: openpolicyagent/opa:1.9.0-static
+    command: ["run", "--server", "--addr=0.0.0.0:8181", "--tls-cert-file=/run/secrets/opa_tls_cert", "--tls-private-key-file=/run/secrets/opa_tls_key", "--config-file=/config/config.yaml", "/policy/aak.rego"]
+    secrets: [opa_tls_cert, opa_tls_key]
+    volumes:
+      - ./opa:/policy:ro
+      - ./opa/config.yaml:/config/config.yaml:ro
+    networks: [authority]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+
+  identity:
+    image: quay.io/keycloak/keycloak:26.3.5
+    command: ["start-dev", "--health-enabled=true"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD_FILE: /run/secrets/keycloak_admin_password
+    secrets: [keycloak_admin_password]
+    networks: [identity]
+    read_only: true
+    tmpfs: [/opt/keycloak/data, /tmp]
+    security_opt: [no-new-privileges:true]
+
+networks:
+  authority:
+    internal: true
+  identity:
+    internal: true
+
+volumes:
+  authority_state: {}
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+  keycloak_admin_password:
+    file: ./secrets/keycloak_admin_password.txt
+  opa_tls_cert:
+    file: ./secrets/opa_tls.crt
+  opa_tls_key:
+    file: ./secrets/opa_tls.key
