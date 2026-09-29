@@ -392,6 +392,22 @@ class FederatedSecurityTests(unittest.TestCase):
         self.assertTrue(self.anchor.verify_chain())
         self.assertEqual(self.downstream._last_anchor.sequence, 20)
 
+    def test_initial_anchor_verification_uses_one_atomic_snapshot(self):
+        # A second read would see a concurrently appended event and falsely fail.
+        first = self.anchor.append({"type": "already_present"})
+        self.anchor.head = lambda: (_ for _ in ()).throw(AssertionError("separate head read"))
+        self.anchor.records = lambda: (_ for _ in ()).throw(AssertionError("separate records read"))
+        self.assertTrue(self.downstream._anchor_is_current())
+        self.assertEqual(self.downstream._last_anchor, first)
+        self.assertTrue(self.downstream.verify_full_audit_integrity())
+
+    def test_atomic_snapshot_still_rejects_tampering(self):
+        self.anchor.append({"type": "trusted"})
+        self.assertTrue(self.downstream.verify_full_audit_integrity())
+        self.anchor._events[0]["event"] = {"type": "tampered"}
+        self.assertFalse(self.downstream.verify_full_audit_integrity())
+        self.assertFalse(self.downstream._anchor_is_current())
+
     def test_audit_snapshot_is_atomic_under_concurrent_append(self):
         receipts, head = self.anchor.snapshot_since(0)
         self.assertEqual(receipts, ())

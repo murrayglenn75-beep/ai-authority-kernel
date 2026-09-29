@@ -194,6 +194,18 @@ class ExternalAuditAnchor:
             row = self._events[-1]
             return receipts, AnchorReceipt(row["sequence"], row["previous_hash"], row["event_hash"], row["signature"])
 
+    def snapshot_records(self) -> tuple[tuple[dict[str, Any], ...], AnchorReceipt | None]:
+        """Capture historical records and their head in one append-locked view."""
+        with self._lock:
+            rows = tuple(dict(row) for row in self._events)
+            if not rows:
+                return rows, None
+            last = rows[-1]
+            return rows, AnchorReceipt(
+                last["sequence"], last["previous_hash"],
+                last["event_hash"], last["signature"],
+            )
+
     def records(self) -> tuple[dict[str, Any], ...]:
         with self._lock:
             return tuple(dict(row) for row in self._events)
@@ -335,11 +347,13 @@ class DownstreamEnforcer:
     def _anchor_is_current(self) -> bool:
         with self._anchor_lock:
             if self._last_anchor is None:
-                head = self.anchor.head()
+                rows, head = self.anchor.snapshot_records()
                 if head is None:
+                    if rows:
+                        return False
                     self._anchor_initialized = True
                     return True
-                if not self._verify_anchor_receipt(head) or not self._verify_anchor_chain_locally(head):
+                if not self._verify_anchor_receipt(head) or not self._verify_anchor_chain_locally(head, rows):
                     return False
                 self._last_anchor = head
                 self._anchor_initialized = True
@@ -361,15 +375,18 @@ class DownstreamEnforcer:
     def verify_full_audit_integrity(self) -> bool:
         """Full historical verification for startup and independent monitoring."""
         with self._anchor_lock:
-            head = self.anchor.head()
-            return head is None or (self._verify_anchor_receipt(head) and self._verify_anchor_chain_locally(head))
+            rows, head = self.anchor.snapshot_records()
+            return (not rows) if head is None else (
+                self._verify_anchor_receipt(head) and self._verify_anchor_chain_locally(head, rows)
+            )
 
     def _verify_anchor_receipt(self, receipt: AnchorReceipt) -> bool:
         record = {"sequence": receipt.sequence, "previous_hash": receipt.previous_hash, "event_hash": receipt.event_hash}
         return _verify(self.anchor_verifier, record, receipt.signature)
 
-    def _verify_anchor_chain_locally(self, head: AnchorReceipt) -> bool:
-        rows = self.anchor.records()
+    def _verify_anchor_chain_locally(
+        self, head: AnchorReceipt, rows: tuple[dict[str, Any], ...],
+    ) -> bool:
         if len(rows) != head.sequence:
             return False
         previous = "GENESIS"
