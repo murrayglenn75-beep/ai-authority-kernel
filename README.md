@@ -1,5 +1,51 @@
 # AI Authority Kernel (AAK) v1.6.0-rc1
 
+> **A deny-by-default execution boundary for AI agents.** The model may propose an action; AAK determines whether a narrowly scoped capability exists, independently verifies it at the resource boundary, executes through an isolated broker, and commits an auditable result.
+
+## At a glance
+
+**Problem:** AI agents are often given broad tool or credential access and expected to behave correctly.
+
+**AAK approach:** separate intent from authority.
+
+```text
+Model proposal
+   ↓
+Policy + identity + exact request verification
+   ↓
+Narrow single-use capability
+   ↓
+Independent resource verification
+   ↓
+Isolated effect broker
+   ↓
+Provider effect
+   ↓
+Signed / hash-linked audit evidence
+```
+
+### What this repository demonstrates
+
+- Fail-closed authorization for tool/API execution
+- Single-use, replay-resistant capabilities
+- Exact request/action binding
+- Independent gateway, resource, broker and audit boundaries
+- Brokered credentials kept outside the model and gateway
+- TLS 1.3 mutual authentication and workload-identity checks
+- Quarantine behavior for ambiguous provider outcomes
+- Durable, tamper-evident audit continuity
+- Adversarial, fuzz, concurrency and overload validation
+
+### Verification snapshot
+
+- **218/218 deterministic tests** passed
+- **1,000,000** professional-style local attack simulations: zero unauthorized acceptances in the stated threat model
+- Multiple **100,000-case** boundary campaigns: zero unauthorized effects
+- **310,000** overload/failure-logic operations: zero unauthorized or duplicate effects
+- **1,653** production-like HTTP requests: zero unauthorized or duplicate effects
+
+These are local verification results for the included threat model, **not** a production certification or a claim of general AI safety.
+
 Windows Git Bash users can start with `./setup-gitbash.sh` and verify with
 `./run-tests-gitbash.sh`. See `GITBASH_SETUP.md` for the full workflow.
 When working with Codex, read `CODEX.md` before making security changes.
