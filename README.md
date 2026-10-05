@@ -24,6 +24,27 @@ Provider effect
 Signed / hash-linked audit evidence
 ```
 
+## Architecture
+
+```mermaid
+flowchart LR
+    M[Untrusted model / agent] --> G[Authority Gateway]
+    P[Policy authority] --> G
+    I[Workload identity] --> G
+    G -->|narrow signed capability| R[Resource Verifier]
+    R -->|authorization audit| A[(Durable Audit Anchor)]
+    R -->|verified effect request| B[Isolated Effect Broker]
+    B -->|credential stays here| X[Provider / External API]
+    X --> B
+    B -->|signed outcome| R
+    R -->|completion receipt| A
+    R --> Q{Safe final state?}
+    Q -->|yes| C[Committed result]
+    Q -->|ambiguous / audit failure| Z[Quarantine]
+```
+
+The model never receives provider credentials and cannot mint its own authority. Each downstream boundary independently re-verifies the exact authorized action.
+
 ### What this repository demonstrates
 
 - Fail-closed authorization for tool/API execution
