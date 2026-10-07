@@ -1,5 +1,14 @@
 # AI Authority Kernel (AAK) v1.6.0-rc1
 
+## 30-second overview
+
+**AI Authority Kernel (AAK) is a security layer that sits between an AI agent and the tools or APIs it wants to use.** The model can request an action, but it cannot authorize itself.
+
+**What I built:** deny-by-default authorization, narrowly scoped single-use capabilities, independent resource verification, replay protection, brokered credentials, mTLS service boundaries, tamper-evident audit evidence, quarantine behavior, and adversarial validation.
+
+**Why it matters:** most agent systems focus on making models more capable. AAK focuses on limiting what happens when the model is mistaken, manipulated, or compromised.
+
+
 > **A deny-by-default execution boundary for AI agents.** The model may propose an action; AAK determines whether a narrowly scoped capability exists, independently verifies it at the resource boundary, executes through an isolated broker, and commits an auditable result.
 
 ## At a glance
