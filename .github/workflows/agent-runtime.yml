@@ -17,6 +17,8 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+      - name: Install runtime dependencies
+        run: python -m pip install -r requirements-runtime.lock
       - name: Run standalone agent-runtime checks
         run: PYTHONPATH=. python verify_agent_runtime.py
       - name: Check syntax
