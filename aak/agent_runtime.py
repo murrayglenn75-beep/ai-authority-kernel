@@ -135,12 +135,18 @@ class BoundedAgent:
                     delay = exc.retry_after if exc.retry_after is not None else 1.0
                     if (not isinstance(delay, (int, float)) or not math.isfinite(delay)
                             or not 0 <= delay <= 3600):
+                        if executed_effects:
+                            return result(Outcome.QUARANTINED, step, "invalid post-effect retry delay")
                         return result(Outcome.PROVIDER_ERROR, step, "invalid retry-after")
                     if executed_effects:
                         return result(Outcome.QUARANTINED, step, "rate limit after effects; reconcile before restart")
                     return result(Outcome.PROVIDER_RETRY_LATER, step, "rate limited; no effect attempted", float(delay))
+                if executed_effects:
+                    return result(Outcome.QUARANTINED, step, "provider failure after effect; reconcile")
                 return result(Outcome.PROVIDER_ERROR, step, "model provider failure")
             except Exception:
+                if executed_effects:
+                    return result(Outcome.QUARANTINED, step, "model failure after effect; reconcile")
                 return result(Outcome.MODEL_ERROR, step, "model adapter failure")
             if (not isinstance(reply, ModelReply) or type(reply.tokens) is not int
                     or reply.tokens < 0 or not isinstance(reply.calls, tuple)):
