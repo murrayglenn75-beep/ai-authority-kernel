@@ -154,6 +154,22 @@ def verify():
         raise AssertionError("missing authorization was accepted")
     assert len(called) == 1
 
+    agent, effects, _ = runtime([ModelReply(calls=(
+        ToolRequest("publish", {"safe": 1}),
+        ToolRequest("forbidden", {})))])
+    assert agent.run("batch-preflight").outcome == Outcome.DENIED
+    assert not effects
+
+    agent, effects, _ = runtime([ModelReply(calls=(
+        ToolRequest("publish", {"payload": "a" * 20000}),))])
+    assert agent.run("oversize").outcome == Outcome.DENIED
+    assert not effects
+
+    agent, effects, _ = runtime([ModelReply(calls=(
+        ToolRequest("publish", {"x": 1}),), tokens=True)])
+    assert agent.run("boolean-tokens").outcome == Outcome.MODEL_ERROR
+    assert not effects
+
     agent, effects, _ = runtime([RuntimeError("malformed model adapter")])
     assert agent.run("adapter").outcome == Outcome.MODEL_ERROR
     assert not effects
