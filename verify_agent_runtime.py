@@ -1,4 +1,7 @@
 """Standalone regression checks without provider credentials."""
+import os
+import tempfile
+from aak.runtime_store import RuntimeCheckpointStore
 from aak.agent_runtime import (
     BoundedAgent, ModelReply, Outcome, ProviderFailure, ToolRequest,
     parse_prompt_tool_call,
@@ -81,6 +84,23 @@ def verify():
     agent.effect_executor = uncertain
     assert agent.run("ambiguous").outcome == Outcome.QUARANTINED
     assert len(effects) == 1
+
+    with tempfile.TemporaryDirectory() as folder:
+        filename = os.path.join(folder, "journal.db")
+        journal = RuntimeCheckpointStore(filename)
+        agent, effects, _ = runtime([ModelReply(calls=(ToolRequest("publish", {}),))])
+        agent.checkpoint = journal
+        # First dispatch is recorded but the model fails in the next turn.
+        assert agent.run("durable").outcome == Outcome.MODEL_ERROR
+        assert len(effects) == 1
+        journal.close()
+        journal = RuntimeCheckpointStore(filename)
+        agent2, effects2, _ = runtime([ModelReply(calls=(ToolRequest("publish", {}),))])
+        agent2.checkpoint = journal
+        assert agent2.run("durable").outcome == Outcome.QUARANTINED
+        assert not effects2
+        assert journal.state("durable")[0][3] == "completed"
+        journal.close()
 
     agent, effects, _ = runtime([RuntimeError("malformed model adapter")])
     assert agent.run("adapter").outcome == Outcome.MODEL_ERROR
