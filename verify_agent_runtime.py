@@ -3,7 +3,7 @@ import os
 import tempfile
 from aak.runtime_store import RuntimeCheckpointStore
 from aak.reliability_contract import (
-    ProviderEvidence, RecoveryDecision, reconcile,
+    ProviderEvidence, RecoveryDecision, reconcile, ExactGrantBoundary,
     VerifiedAAKExecutor, normalized_native_tool_call,
 )
 from aak.agent_runtime import (
@@ -206,6 +206,33 @@ def verify():
         capture_effect, mutate_checkpoint, allowed_tools=frozenset({"publish"}))
     assert snapshot_agent.run("snapshot").outcome == Outcome.COMPLETE
     assert captured == [1], "effect parameters changed after validation"
+
+    from types import SimpleNamespace
+    from aak.distributed import GatewayGrant
+    from aak.action_gateway import ToolCall
+    proposed = ToolRequest("publish", {"amount": 1})
+    valid_call = ToolCall("mcp", "c1", "publish", "resource-1", "service-1", {"amount": 1})
+    manifest = SimpleNamespace(action="publish", resource="resource-1", audience="service-1")
+    dispatched = []
+    valid_grant = GatewayGrant(valid_call, manifest, SimpleNamespace())
+    ExactGrantBoundary(lambda req, tx: valid_grant, dispatched.append,
+                       allowed_actions=frozenset({"publish"}))(proposed, "a" * 64)
+    assert len(dispatched) == 1
+    for bad_call in (
+        ToolCall("mcp", "c2", "publish", "resource-1", "service-1", {"amount": 2}),
+        ToolCall("mcp", "c3", "publish", "wrong-resource", "service-1", {"amount": 1}),
+        ToolCall("mcp", "c4", "publish", "resource-1", "wrong-audience", {"amount": 1}),
+    ):
+        bad_grant = GatewayGrant(bad_call, manifest, SimpleNamespace())
+        denied = ExactGrantBoundary(lambda req, tx: bad_grant, dispatched.append,
+                                    allowed_actions=frozenset({"publish"}))
+        try:
+            denied(proposed, "a" * 64)
+        except PermissionError:
+            pass
+        else:
+            raise AssertionError("AAK mismatched grant accepted")
+    assert len(dispatched) == 1
 
     agent, effects, _ = runtime([RuntimeError("malformed model adapter")])
     assert agent.run("adapter").outcome == Outcome.MODEL_ERROR
