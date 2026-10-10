@@ -103,3 +103,43 @@ def normalized_native_tool_call(
     if len(payload) > max_argument_bytes:
         raise ValueError("native arguments too large")
     return ToolRequest(name, arguments)
+
+
+class ExactGrantBoundary:
+    """Bridge from a model ToolRequest to an AAK GatewayGrant.
+
+    Only operator-selected registered actions are eligible. Verifies the granted
+    canonical ToolCall exactly matches a snapshot of the model proposal before
+    delegating to the real resource-side executor. The downstream executor MUST
+    independently validate signatures, policy and single-use consumption.
+    """
+    def __init__(self, grant_provider, resource_executor, *, allowed_actions: frozenset[str]):
+        if not callable(grant_provider) or not callable(resource_executor) or not allowed_actions:
+            raise ValueError("missing trusted AAK integration")
+        self.grant_provider = grant_provider
+        self.resource_executor = resource_executor
+        self.allowed_actions = allowed_actions
+
+    def __call__(self, request: ToolRequest, transaction_id: str) -> object:
+        import hmac
+        import re
+        from .distributed import GatewayGrant
+        from .canonical import canonical_bytes
+        if (not isinstance(request, ToolRequest) or request.name not in self.allowed_actions
+                or not isinstance(request.arguments, dict)
+                or not isinstance(transaction_id, str)
+                or re.fullmatch(r"[0-9a-f]{64}", transaction_id) is None):
+            raise ValueError("invalid execution request")
+        requested = canonical_bytes(request.arguments)
+        grant = self.grant_provider(request, transaction_id)
+        if not isinstance(grant, GatewayGrant):
+            raise PermissionError("missing canonical AAK grant")
+        if (grant.call.action != request.name
+                or grant.manifest.action != request.name
+                or grant.call.action != grant.manifest.action
+                or grant.call.resource != grant.manifest.resource
+                or grant.call.audience != grant.manifest.audience
+                or not hmac.compare_digest(canonical_bytes(grant.call.parameters), requested)):
+            raise PermissionError("grant does not match requested effect")
+        # This call must go through the independent AAK resource verifier/broker.
+        return self.resource_executor(grant)
