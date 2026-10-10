@@ -171,7 +171,8 @@ class BoundedAgent:
                 return result(Outcome.MODEL_ERROR, step, "model adapter failure")
             if (not isinstance(reply, ModelReply) or type(reply.tokens) is not int
                     or reply.tokens < 0 or not isinstance(reply.calls, tuple)):
-                return result(Outcome.MODEL_ERROR, step, "invalid model response")
+                return result(Outcome.QUARANTINED if executed_effects else Outcome.MODEL_ERROR,
+                              step, "invalid model response")
             tokens += reply.tokens
             if tokens > self.max_tokens or self.clock() - start >= self.max_seconds:
                 return result(Outcome.LIMIT_REACHED, step, "budget or deadline")
@@ -200,7 +201,9 @@ class BoundedAgent:
                         return result(Outcome.DENIED, step, "tool arguments too large")
                 except (TypeError, ValueError, OverflowError, UnicodeError, RecursionError):
                     return result(Outcome.DENIED, step, "invalid tool arguments")
-                prepared.append((call, args))
+                # Snapshot the validated canonical payload; caller-owned dictionaries
+                # must not change between validation, hashing and dispatch.
+                prepared.append((ToolRequest(call.name, json.loads(args)), args))
             for index, (call, args) in enumerate(prepared):
                 if self.clock() - start >= self.max_seconds:
                     return result(Outcome.LIMIT_REACHED, step, 'deadline before effect')
