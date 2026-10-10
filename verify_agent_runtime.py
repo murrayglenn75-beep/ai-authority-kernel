@@ -182,7 +182,10 @@ def verify():
         child = {}
         cursor["next"] = child
         cursor = child
-    for bad in (ToolRequest([], {}), ToolRequest("read", nested)):
+    cyclic = {}
+    cyclic["self"] = cyclic
+    for bad in (ToolRequest([], {}), ToolRequest("read", nested),
+                ToolRequest("read", cyclic)):
         agent, effects, _ = runtime([ModelReply(calls=(bad,))])
         assert agent.run("malformed").outcome == Outcome.DENIED, repr(bad)[:140]
         assert not effects
