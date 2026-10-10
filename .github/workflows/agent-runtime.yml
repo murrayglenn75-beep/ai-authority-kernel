@@ -20,6 +20,8 @@ jobs:
       - name: Install runtime dependencies
         run: python -m pip install -r requirements-runtime.lock
       - name: Run standalone agent-runtime checks
-        run: PYTHONPATH=. python verify_agent_runtime.py
+        run: PYTHONPATH=. python verify_agent_runtime.py benchmark_agent_reliability.py
+      - name: Run synthetic reliability matrix
+        run: PYTHONPATH=. python benchmark_agent_reliability.py
       - name: Check syntax
         run: python -m compileall -q aak/agent_runtime.py aak/runtime_store.py aak/reliability_contract.py verify_agent_runtime.py
