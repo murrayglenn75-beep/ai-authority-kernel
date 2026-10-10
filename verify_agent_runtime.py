@@ -190,6 +190,23 @@ def verify():
         assert agent.run("malformed").outcome == Outcome.DENIED, repr(bad)[:140]
         assert not effects
 
+    # Checkpoint hooks are external code: mutating the original proposal must
+    # not change parameters used by the independently verified executor.
+    original = {"amount": 1}
+    captured = []
+    def mutate_checkpoint(record):
+        if record["phase"] == "pending":
+            original["amount"] = 999999
+    def capture_effect(call, tx):
+        captured.append(call.arguments["amount"])
+        return "ok"
+    snapshot_agent = BoundedAgent(
+        FakeModel([ModelReply(calls=(ToolRequest("publish", original),)),
+                   ModelReply(text="ok")]),
+        capture_effect, mutate_checkpoint, allowed_tools=frozenset({"publish"}))
+    assert snapshot_agent.run("snapshot").outcome == Outcome.COMPLETE
+    assert captured == [1], "effect parameters changed after validation"
+
     agent, effects, _ = runtime([RuntimeError("malformed model adapter")])
     assert agent.run("adapter").outcome == Outcome.MODEL_ERROR
     assert not effects
