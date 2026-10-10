@@ -47,3 +47,6 @@ Require actual live provider benchmarks, real isolated broker integration,
 serialized distributed worker leases with fencing, independent audit anchoring,
 failover/crash fault injection, MITRE ATLAS and OWASP LLM tool-output abuse
 tests, and all existing CI checks on supported platforms.
+
+## October 10 follow-up — post-effect provider exceptions
+A subsequent HTTP 503, invalid Retry-After, or model adapter failure after an earlier effect now quarantines the run rather than returning an ordinary provider/model failure. The runtime's durable checkpoint journal still prevents repeated dispatch but real provider reconciliation remains required. Added regression checks to `verify_agent_runtime.py`. The branch remains a draft until the latest CI completes.
