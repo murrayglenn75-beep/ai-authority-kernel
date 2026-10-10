@@ -86,6 +86,27 @@ def parse_prompt_tool_call(data: str, *, max_bytes: int = 16384) -> ModelReply:
 
 
 def _canonical(value: Mapping[str, object]) -> str:
+    # The native JSON encoder's internal depth limit varies by environment.
+    # Bound traversal explicitly, and reject cycles before canonicalization.
+    stack = [(value, 0)]
+    seen = set()
+    visited = 0
+    while stack:
+        node, depth = stack.pop()
+        visited += 1
+        if visited > 10000 or depth > 32:
+            raise ValueError("excessive argument structure")
+        if isinstance(node, (dict, list, tuple)):
+            ident = id(node)
+            if ident in seen:
+                raise ValueError("shared or cyclic argument container")
+            seen.add(ident)
+            if isinstance(node, dict):
+                if any(not isinstance(k, str) for k in node):
+                    raise ValueError("argument keys must be strings")
+                stack.extend((v, depth + 1) for v in node.values())
+            else:
+                stack.extend((v, depth + 1) for v in node)
     return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False, ensure_ascii=False)
 
 
