@@ -176,6 +176,17 @@ def verify():
         assert agent.run("post-effect-error").outcome == Outcome.QUARANTINED
         assert len(effects) == 1
 
+    nested = {}
+    cursor = nested
+    for _ in range(1200):
+        child = {}
+        cursor["next"] = child
+        cursor = child
+    for bad in (ToolRequest([], {}), ToolRequest("read", nested)):
+        agent, effects, _ = runtime([ModelReply(calls=(bad,))])
+        assert agent.run("malformed").outcome == Outcome.DENIED
+        assert not effects
+
     agent, effects, _ = runtime([RuntimeError("malformed model adapter")])
     assert agent.run("adapter").outcome == Outcome.MODEL_ERROR
     assert not effects
