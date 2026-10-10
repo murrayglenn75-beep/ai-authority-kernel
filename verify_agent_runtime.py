@@ -184,7 +184,7 @@ def verify():
         cursor = child
     for bad in (ToolRequest([], {}), ToolRequest("read", nested)):
         agent, effects, _ = runtime([ModelReply(calls=(bad,))])
-        assert agent.run("malformed").outcome == Outcome.DENIED
+        assert agent.run("malformed").outcome == Outcome.DENIED, repr(bad)[:140]
         assert not effects
 
     agent, effects, _ = runtime([RuntimeError("malformed model adapter")])
