@@ -1,0 +1,23 @@
+name: agent-runtime-defensive-checks
+on:
+  push:
+    branches: [feat/agent-runtime-reliability]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  defensive-checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Run standalone agent-runtime checks
+        run: PYTHONPATH=. python verify_agent_runtime.py
+      - name: Check syntax
+        run: python -m compileall -q aak/agent_runtime.py verify_agent_runtime.py
