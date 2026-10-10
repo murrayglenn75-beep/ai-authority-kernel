@@ -170,6 +170,12 @@ def verify():
     assert agent.run("boolean-tokens").outcome == Outcome.MODEL_ERROR
     assert not effects
 
+    for error in (ProviderFailure(503), RuntimeError("model malformed"), ProviderFailure(429, float("nan"))):
+        agent, effects, _ = runtime([
+            ModelReply(calls=(ToolRequest("publish", {}),)), error])
+        assert agent.run("post-effect-error").outcome == Outcome.QUARANTINED
+        assert len(effects) == 1
+
     agent, effects, _ = runtime([RuntimeError("malformed model adapter")])
     assert agent.run("adapter").outcome == Outcome.MODEL_ERROR
     assert not effects
