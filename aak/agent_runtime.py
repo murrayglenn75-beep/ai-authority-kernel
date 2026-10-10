@@ -168,7 +168,8 @@ class BoundedAgent:
             # an earlier call before discovering that a later call is forbidden.
             prepared = []
             for call in reply.calls:
-                if not isinstance(call, ToolRequest) or call.name not in self.allowed_tools:
+                if (not isinstance(call, ToolRequest) or not isinstance(call.name, str)
+                        or call.name not in self.allowed_tools):
                     return result(Outcome.DENIED, step, "unregistered tool")
                 if not isinstance(call.arguments, dict):
                     return result(Outcome.DENIED, step, "arguments must be object")
@@ -176,7 +177,7 @@ class BoundedAgent:
                     args = _canonical(call.arguments)
                     if len(args.encode("utf-8")) > self.max_argument_bytes:
                         return result(Outcome.DENIED, step, "tool arguments too large")
-                except (TypeError, ValueError, OverflowError, UnicodeError):
+                except (TypeError, ValueError, OverflowError, UnicodeError, RecursionError):
                     return result(Outcome.DENIED, step, "invalid tool arguments")
                 prepared.append((call, args))
             for index, (call, args) in enumerate(prepared):
