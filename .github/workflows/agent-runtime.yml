@@ -21,6 +21,8 @@ jobs:
         run: python -m pip install -r requirements-runtime.lock
       - name: Run standalone agent-runtime checks
         run: PYTHONPATH=. python verify_agent_runtime.py benchmark_agent_reliability.py
+      - name: Run signed AAK integration scenario
+        run: PYTHONPATH=. python -m unittest discover -s tests -p test_runtime_integration.py -q
       - name: Run synthetic reliability matrix
         run: PYTHONPATH=. python benchmark_agent_reliability.py
       - name: Check syntax
