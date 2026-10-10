@@ -50,3 +50,6 @@ tests, and all existing CI checks on supported platforms.
 
 ## October 10 follow-up — post-effect provider exceptions
 A subsequent HTTP 503, invalid Retry-After, or model adapter failure after an earlier effect now quarantines the run rather than returning an ordinary provider/model failure. The runtime's durable checkpoint journal still prevents repeated dispatch but real provider reconciliation remains required. Added regression checks to `verify_agent_runtime.py`. The branch remains a draft until the latest CI completes.
+
+## TOCTOU mitigation — October 10
+Model-supplied ToolRequest arguments are caller-owned mutable dictionaries. The bounded runner now snapshots JSON from the canonical payload **after validating it** and dispatches the snapshot rather than the original object. Regression coverage mutates caller-owned input inside a checkpoint callback and checks the executor receives the hashed value. A separate signed AAK verifier remains mandatory: snapshots alone do not authorize any effect.
