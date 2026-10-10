@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -116,6 +117,7 @@ class BoundedAgent:
         history = list(initial_history)
         start = self.clock()
         tokens = 0
+        executed_effects = 0
 
         def result(kind, step, detail="", delay=None):
             return RunResult(kind, step, tokens, detail, delay)
@@ -128,8 +130,11 @@ class BoundedAgent:
             except ProviderFailure as exc:
                 if exc.status == 429:
                     delay = exc.retry_after if exc.retry_after is not None else 1.0
-                    if not isinstance(delay, (int, float)) or not 0 <= delay <= 3600:
+                    if (not isinstance(delay, (int, float)) or not math.isfinite(delay)
+                            or not 0 <= delay <= 3600):
                         return result(Outcome.PROVIDER_ERROR, step, "invalid retry-after")
+                    if executed_effects:
+                        return result(Outcome.QUARANTINED, step, "rate limit after effects; reconcile before restart")
                     return result(Outcome.PROVIDER_RETRY_LATER, step, "rate limited; no effect attempted", float(delay))
                 return result(Outcome.PROVIDER_ERROR, step, "model provider failure")
             except Exception:
@@ -150,6 +155,8 @@ class BoundedAgent:
                     return result(Outcome.QUARANTINED, step, "checkpoint unavailable")
                 return result(Outcome.COMPLETE, step, reply.text)
             for index, call in enumerate(reply.calls):
+                if self.clock() - start >= self.max_seconds:
+                    return result(Outcome.LIMIT_REACHED, step, 'deadline before effect')
                 if not isinstance(call, ToolRequest) or call.name not in self.allowed_tools:
                     return result(Outcome.DENIED, step, "unregistered tool")
                 try:
@@ -174,6 +181,7 @@ class BoundedAgent:
                                      "phase": "completed", "transaction_id": digest})
                 except Exception:
                     return result(Outcome.QUARANTINED, step, "completion checkpoint unavailable")
+                executed_effects += 1
                 history.append({"role": "tool", "name": call.name, "transaction_id": digest,
                                 "result": str(output)[:8192]})
         return result(Outcome.LIMIT_REACHED, self.max_steps, "max model turns reached")
