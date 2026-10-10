@@ -1,9 +1,92 @@
-#!/usr/bin/env python3
-from aak.agent_runtime import parse_prompt_tool_call
+"""Standalone regression checks without provider credentials."""
+from aak.agent_runtime import (
+    BoundedAgent, ModelReply, Outcome, ProviderFailure, ToolRequest,
+    parse_prompt_tool_call,
+)
+
+
+class FakeModel:
+    def __init__(self, replies):
+        self.replies = iter(replies)
+
+    def complete(self, history):
+        reply = next(self.replies)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+
+def runtime(replies, **opts):
+    effects, events = [], []
+
+    def verified_effect(call, tx):
+        effects.append(tx)
+        return "ok"
+
+    return (BoundedAgent(FakeModel(replies), verified_effect, events.append,
+                         allowed_tools=frozenset({"read", "publish"}), **opts),
+            effects, events)
+
 
 def verify():
-    response = parse_prompt_tool_call('{"final":"ok"}')
-    assert response.text == "ok"
+    assert parse_prompt_tool_call('{"final":"ok"}').text == "ok"
+    assert parse_prompt_tool_call('{"tool":"read","arguments":{}}').calls[0].name == "read"
+    for invalid in ('{"final":"a","final":"b"}', '[]',
+                    '{"tool":"read","arguments":{},"surprise":true}'):
+        try:
+            parse_prompt_tool_call(invalid)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("invalid model JSON accepted")
+
+    agent, effects, events = runtime([
+        ModelReply(calls=(ToolRequest("publish", {"id": 1}),), tokens=4),
+        ModelReply(text="done", tokens=3)])
+    assert agent.run("normal").outcome == Outcome.COMPLETE
+    assert len(effects) == 1
+    assert [e["phase"] for e in events] == ["pending", "completed", "complete"]
+
+    agent, effects, _ = runtime([ProviderFailure(429, 7)])
+    reply = agent.run("rate-limit")
+    assert reply.outcome == Outcome.PROVIDER_RETRY_LATER
+    assert reply.next_retry_seconds == 7
+    assert not effects
+
+    agent, effects, _ = runtime([ModelReply(calls=(ToolRequest("other", {}),))])
+    assert agent.run("unknown-tool").outcome == Outcome.DENIED
+    assert not effects
+
+    agent, effects, _ = runtime(
+        [ModelReply(calls=(ToolRequest("read", {}),))] * 5, max_steps=2)
+    assert agent.run("loop").outcome == Outcome.LIMIT_REACHED
+    assert len(effects) == 2
+
+    agent, effects, _ = runtime(
+        [ModelReply(calls=(ToolRequest("publish", {}),), tokens=101)], max_tokens=100)
+    assert agent.run("budget").outcome == Outcome.LIMIT_REACHED
+    assert not effects
+
+    agent, effects, _ = runtime([ModelReply(calls=(ToolRequest("publish", {}),))])
+    def failed_checkpoint(record):
+        raise OSError("unavailable")
+    agent.checkpoint = failed_checkpoint
+    assert agent.run("checkpoint").outcome == Outcome.QUARANTINED
+    assert not effects
+
+    agent, effects, _ = runtime([ModelReply(calls=(ToolRequest("publish", {}),))])
+    def uncertain(call, tx):
+        effects.append(tx)
+        raise TimeoutError("provider result unknown")
+    agent.effect_executor = uncertain
+    assert agent.run("ambiguous").outcome == Outcome.QUARANTINED
+    assert len(effects) == 1
+
+    agent, effects, _ = runtime([RuntimeError("malformed model adapter")])
+    assert agent.run("adapter").outcome == Outcome.MODEL_ERROR
+    assert not effects
+
 
 if __name__ == "__main__":
     verify()
+    print("Agent runtime smoke and defensive checks passed")
