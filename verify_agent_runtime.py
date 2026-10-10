@@ -95,7 +95,7 @@ def verify():
         agent, effects, _ = runtime([ModelReply(calls=(ToolRequest("publish", {}),))])
         agent.checkpoint = journal
         # First dispatch is recorded but the model fails in the next turn.
-        assert agent.run("durable").outcome == Outcome.MODEL_ERROR
+        assert agent.run("durable").outcome == Outcome.QUARANTINED
         assert len(effects) == 1
         journal.close()
         journal = RuntimeCheckpointStore(filename)
