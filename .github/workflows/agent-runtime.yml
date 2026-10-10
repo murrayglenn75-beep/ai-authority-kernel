@@ -22,4 +22,4 @@ jobs:
       - name: Run standalone agent-runtime checks
         run: PYTHONPATH=. python verify_agent_runtime.py
       - name: Check syntax
-        run: python -m compileall -q aak/agent_runtime.py verify_agent_runtime.py
+        run: python -m compileall -q aak/agent_runtime.py aak/runtime_store.py aak/reliability_contract.py verify_agent_runtime.py
