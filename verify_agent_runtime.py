@@ -102,6 +102,15 @@ def verify():
         assert journal.state("durable")[0][3] == "completed"
         journal.close()
 
+    agent, effects, _ = runtime([
+        ModelReply(calls=(ToolRequest("publish", {}),)), ProviderFailure(429, 2)])
+    assert agent.run("after-effect-429").outcome == Outcome.QUARANTINED
+    assert len(effects) == 1
+
+    agent, effects, _ = runtime([ProviderFailure(429, float("nan"))])
+    assert agent.run("nonfinite-delay").outcome == Outcome.PROVIDER_ERROR
+    assert not effects
+
     agent, effects, _ = runtime([RuntimeError("malformed model adapter")])
     assert agent.run("adapter").outcome == Outcome.MODEL_ERROR
     assert not effects
