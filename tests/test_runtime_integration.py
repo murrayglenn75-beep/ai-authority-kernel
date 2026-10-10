@@ -6,7 +6,7 @@ No cloud-provider credentials or real external execution.
 import tempfile
 from pathlib import Path
 from aak import (ActionEnvelopeVerifier, ToolManifestVerifier, Ed25519Signer,
-                 InputPolicy, SQLiteBrokerReplayStore, VerifyingEffectBroker)
+                 InputPolicy, VerifyingEffectBroker, DistributedBoundaryError)
 from aak.agent_runtime import BoundedAgent, ModelReply, ToolRequest, Outcome
 from aak.reliability_contract import ExactGrantBoundary
 from aak.runtime_store import RuntimeCheckpointStore
@@ -72,13 +72,9 @@ class RuntimeSignedIntegrationTests(DistributedServiceTests):
                 self.assertTrue(audit.verify_chain())
                 self.assertFalse(quarantine)
                 self.assertEqual(journal.state("proof-1")[0][3], "completed")
-                # Broker and resource must reject replay even if runtime journaling
-                # were bypassed, never call provider twice.
-                denied = bound(calls[0], "b" * 64)
-                self.fail("unexpected replay acceptance: " + repr(denied))
-            except Exception as exc:
-                if isinstance(exc, AssertionError):
-                    raise
+                # The independent resource verifier rejects a consumed grant.
+                with self.assertRaisesRegex(DistributedBoundaryError, "replay"):
+                    bound(calls[0], "b" * 64)
                 self.assertEqual(len(provider_calls), 1)
             finally:
                 journal.close()
