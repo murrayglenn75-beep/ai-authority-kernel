@@ -2,6 +2,10 @@
 import os
 import tempfile
 from aak.runtime_store import RuntimeCheckpointStore
+from aak.reliability_contract import (
+    ProviderEvidence, RecoveryDecision, reconcile,
+    VerifiedAAKExecutor, normalized_native_tool_call,
+)
 from aak.agent_runtime import (
     BoundedAgent, ModelReply, Outcome, ProviderFailure, ToolRequest,
     parse_prompt_tool_call,
@@ -110,6 +114,45 @@ def verify():
     agent, effects, _ = runtime([ProviderFailure(429, float("nan"))])
     assert agent.run("nonfinite-delay").outcome == Outcome.PROVIDER_ERROR
     assert not effects
+
+    txid = "a" * 64
+    assert reconcile(txid, None) == RecoveryDecision.REQUIRE_OPERATOR
+    good = ProviderEvidence(txid, "provider-record-1", "committed", True, True)
+    assert reconcile(txid, good) == RecoveryDecision.RECORD_SUCCESS
+    denied = ProviderEvidence(txid, "provider-record-2",
+                              "definitively_rejected_before_effect", True, True)
+    assert reconcile(txid, denied) == RecoveryDecision.RECORD_REJECTION
+    for bad in (
+        ProviderEvidence(txid, "ref", "committed", False, True),
+        ProviderEvidence(txid, "ref", "committed", True, False),
+        ProviderEvidence("b" * 64, "ref", "committed", True, True),
+        ProviderEvidence(txid, "", "committed", True, True),
+        ProviderEvidence(txid, "ref", "unknown", True, True),
+    ):
+        assert reconcile(txid, bad) == RecoveryDecision.REQUIRE_OPERATOR
+    assert normalized_native_tool_call("read", {"id": 1},
+                                      approved_names=frozenset({"read"})).name == "read"
+    for name, args in (("evil", {}), ("read", [1]), ("read", {"x": float("nan")})):
+        try:
+            normalized_native_tool_call(name, args, approved_names=frozenset({"read"}))
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("invalid native call accepted")
+    called = []
+    executor = VerifiedAAKExecutor(
+        lambda call, tx: "signed-grant",
+        lambda grant, call, tx: called.append((grant, call.name, tx)))
+    executor(ToolRequest("read", {}), txid)
+    assert called == [("signed-grant", "read", txid)]
+    blocked = VerifiedAAKExecutor(lambda call, tx: None, lambda grant, call, tx: called.append(1))
+    try:
+        blocked(ToolRequest("read", {}), txid)
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError("missing authorization was accepted")
+    assert len(called) == 1
 
     agent, effects, _ = runtime([RuntimeError("malformed model adapter")])
     assert agent.run("adapter").outcome == Outcome.MODEL_ERROR
