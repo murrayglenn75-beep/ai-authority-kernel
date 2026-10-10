@@ -101,14 +101,17 @@ class BoundedAgent:
         checkpoint: Callable[[dict], None], *,
         allowed_tools: frozenset[str], max_steps: int = 8,
         max_tokens: int = 12000, max_seconds: float = 120.0,
-        max_calls_per_reply: int = 4, clock: Callable[[], float] = time.monotonic,
+        max_calls_per_reply: int = 4, max_argument_bytes: int = 16384,
+        max_result_bytes: int = 8192, clock: Callable[[], float] = time.monotonic,
     ):
-        if not allowed_tools or max_steps < 1 or max_tokens < 1 or max_seconds <= 0 or max_calls_per_reply < 1:
+        if (not allowed_tools or max_steps < 1 or max_tokens < 1 or max_seconds <= 0
+                or max_calls_per_reply < 1 or max_argument_bytes < 1 or max_result_bytes < 1):
             raise ValueError("invalid operator-owned limits")
         self.model, self.effect_executor, self.checkpoint = model, effect_executor, checkpoint
         self.allowed_tools = allowed_tools
         self.max_steps, self.max_tokens = max_steps, max_tokens
         self.max_seconds, self.max_calls_per_reply = max_seconds, max_calls_per_reply
+        self.max_argument_bytes, self.max_result_bytes = max_argument_bytes, max_result_bytes
         self.clock = clock
 
     def run(self, run_id: str, initial_history: tuple[dict, ...] = ()) -> RunResult:
@@ -139,7 +142,8 @@ class BoundedAgent:
                 return result(Outcome.PROVIDER_ERROR, step, "model provider failure")
             except Exception:
                 return result(Outcome.MODEL_ERROR, step, "model adapter failure")
-            if not isinstance(reply, ModelReply) or not isinstance(reply.tokens, int) or reply.tokens < 0:
+            if (not isinstance(reply, ModelReply) or type(reply.tokens) is not int
+                    or reply.tokens < 0 or not isinstance(reply.calls, tuple)):
                 return result(Outcome.MODEL_ERROR, step, "invalid model response")
             tokens += reply.tokens
             if tokens > self.max_tokens or self.clock() - start >= self.max_seconds:
@@ -154,15 +158,24 @@ class BoundedAgent:
                 except Exception:
                     return result(Outcome.QUARANTINED, step, "checkpoint unavailable")
                 return result(Outcome.COMPLETE, step, reply.text)
-            for index, call in enumerate(reply.calls):
-                if self.clock() - start >= self.max_seconds:
-                    return result(Outcome.LIMIT_REACHED, step, 'deadline before effect')
+            # Validate the complete batch before the first effect: never perform
+            # an earlier call before discovering that a later call is forbidden.
+            prepared = []
+            for call in reply.calls:
                 if not isinstance(call, ToolRequest) or call.name not in self.allowed_tools:
                     return result(Outcome.DENIED, step, "unregistered tool")
+                if not isinstance(call.arguments, dict):
+                    return result(Outcome.DENIED, step, "arguments must be object")
                 try:
                     args = _canonical(call.arguments)
-                except (TypeError, ValueError, OverflowError):
+                    if len(args.encode("utf-8")) > self.max_argument_bytes:
+                        return result(Outcome.DENIED, step, "tool arguments too large")
+                except (TypeError, ValueError, OverflowError, UnicodeError):
                     return result(Outcome.DENIED, step, "invalid tool arguments")
+                prepared.append((call, args))
+            for index, (call, args) in enumerate(prepared):
+                if self.clock() - start >= self.max_seconds:
+                    return result(Outcome.LIMIT_REACHED, step, 'deadline before effect')
                 digest = hashlib.sha256((run_id + "\x00" + str(step) + "\x00" + str(index) +
                                          "\x00" + call.name + "\x00" + args).encode()).hexdigest()
                 # Durable checkpoint BEFORE any potentially consequential effect.
@@ -182,6 +195,14 @@ class BoundedAgent:
                 except Exception:
                     return result(Outcome.QUARANTINED, step, "completion checkpoint unavailable")
                 executed_effects += 1
+                # Never blindly stringify arbitrary provider objects. The
+                # result is untrusted text for the model; cap UTF-8 bytes.
+                try:
+                    rendered = str(output)
+                    rendered = rendered.encode("utf-8")[:self.max_result_bytes].decode(
+                        "utf-8", errors="ignore")
+                except Exception:
+                    return result(Outcome.QUARANTINED, step, "unreadable tool result")
                 history.append({"role": "tool", "name": call.name, "transaction_id": digest,
-                                "result": str(output)[:8192]})
+                                "result": rendered, "trust": "untrusted_tool_output"})
         return result(Outcome.LIMIT_REACHED, self.max_steps, "max model turns reached")
