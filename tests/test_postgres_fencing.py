@@ -192,6 +192,34 @@ class PostgreSQLFencingIntegration(unittest.TestCase):
         self.a.dispatch_once("disconnect-run", "worker", token, "connection-lost")
         self.assertEqual(self.b.pending("connection-lost")[2], "pending")
 
+    def test_competing_independent_worker_processes(self):
+        import json
+        worker = (
+            "import json,sys;"
+            "from aak.postgres_fencing import PostgresFencingStore;"
+            "from aak.worker_fencing import LeaseDenied;"
+            "s=PostgresFencingStore(sys.argv[1]);"
+            "import time;"
+            "time.sleep(max(0,float(sys.argv[2])-time.time()));"
+            "\\ntry:\\n t=s.acquire('process-race',sys.argv[3],30);"
+            " print(json.dumps({'won':t}),flush=True)"
+            "\\nexcept LeaseDenied:\\n print(json.dumps({'denied':True}),flush=True)"
+        )
+        import time
+        # Two separate interpreters and database sessions start together.
+        start = str(time.time() + 1.5)
+        processes = [
+            subprocess.Popen([sys.executable, "-c", worker, self.dsn,
+                              start, name], stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True)
+            for name in ("worker-A", "worker-B")
+        ]
+        outputs = [p.communicate(timeout=15) for p in processes]
+        self.assertEqual([p.returncode for p in processes], [0, 0], outputs)
+        results = [json.loads(out.strip()) for out, _ in outputs]
+        self.assertEqual(sum("won" in item for item in results), 1, results)
+        self.assertEqual(sum("denied" in item for item in results), 1, results)
+
     def test_two_independent_connections_one_lease_winner(self):
         barrier = threading.Barrier(2)
         won, denied = [], []
