@@ -56,7 +56,8 @@ class SQLiteFencingStore:
 
     def dispatch_once(self, run_id: str, owner: str, token: int, tx: str, now: int) -> None:
         """Broker-side atomic fence check + pending marker. Never retry uncertain tx."""
-        if (not isinstance(tx, str) or len(tx) != 64 or
+        if (not isinstance(run_id, str) or not run_id or not isinstance(owner, str)
+                or not owner or not isinstance(tx, str) or len(tx) != 64 or
                 any(ch not in "0123456789abcdef" for ch in tx) or
                 type(token) is not int or token < 1 or type(now) is not int):
             raise ValueError("invalid dispatch")
@@ -65,7 +66,7 @@ class SQLiteFencingStore:
             try:
                 row = self.db.execute("SELECT owner,token,expires_at FROM worker_leases WHERE run_id=?",
                                       (run_id,)).fetchone()
-                if not row or row != (owner, token, row[2]) or row[2] <= now:
+                if not row or row[0] != owner or row[1] != token or row[2] <= now:
                     raise LeaseDenied("stale worker fence")
                 self.db.execute("INSERT INTO fenced_dispatch VALUES(?,?,?,'pending')",
                                 (tx, run_id, token))
