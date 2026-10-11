@@ -125,6 +125,23 @@ class PostgreSQLFencingIntegration(unittest.TestCase):
                 replay.close()
                 audit.close()
 
+    def test_crash_after_dispatch_keeps_pending_and_blocks_retry(self):
+        token = self.a.acquire("pending-run", "worker", 30)
+        child = (
+            "import os,sys;"
+            "from aak.postgres_fencing import PostgresFencingStore;"
+            "s=PostgresFencingStore(sys.argv[1]);"
+            "s.dispatch_once('pending-run','worker',"
+            + str(token) + ",'tx-crash');"
+            "os._exit(0)"
+        )
+        subprocess.run([sys.executable, "-c", child, self.dsn],
+                       check=True, timeout=15)
+        self.assertEqual(self.b.pending("tx-crash"), ("pending-run", token, "pending"))
+        with self.assertRaises(Exception):
+            self.b.dispatch_once("pending-run", "worker", token, "tx-crash")
+        self.assertEqual(self.b.pending("tx-crash")[2], "pending")
+
     def test_two_independent_connections_one_lease_winner(self):
         barrier = threading.Barrier(2)
         won, denied = [], []
