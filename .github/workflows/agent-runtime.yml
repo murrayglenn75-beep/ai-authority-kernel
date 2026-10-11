@@ -25,6 +25,8 @@ jobs:
         run: PYTHONPATH=. python -m unittest discover -s tests -p test_runtime_integration.py -q
       - name: Run durable journal concurrency checks
         run: PYTHONPATH=. python -m unittest discover -s tests -p test_runtime_journal_concurrency.py -q
+      - name: Run broker boundary tests
+        run: PYTHONPATH=. python -m unittest discover -s tests -p test_broker_fence_integration.py -q
       - name: Run worker fencing tests
         run: PYTHONPATH=. python -m unittest discover -s tests -p test_worker_fencing.py -q
       - name: Run synthetic reliability matrix
