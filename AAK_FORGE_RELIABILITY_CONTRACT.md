@@ -66,3 +66,17 @@ A local SQLite journal is not sufficient for multi-host leasing.
 Experimental runtime, local journal, native-tool normalization and recovery
 decision contracts. No FORGE integration, live provider SDK, or multiworker
 recovery is implied by this document.
+
+## Experimental local fencing implementation (October 2026)
+`aak.worker_fencing.SQLiteFencingStore` and `tests/test_worker_fencing.py`
+now exercise single-database lease exclusion, monotonically increasing fencing
+tokens, stale-owner denial, exclusive pending dispatch reservations and lease
+takeover across separate SQLite connections. CI runs these checks.
+
+**Do not treat this as distributed exactly-once delivery.** A production
+resource and effect broker must atomically enforce fencing against a shared,
+highly available, serializable store. Current code neither wires this new
+store to `VerifyingEffectBroker`, nor fences an external API, nor resolves
+provider ambiguous commits. SQLite/WAL on a local disk is not a cluster
+coordination mechanism. Real infrastructure and provider-sandbox proof remain
+deployment gates.
