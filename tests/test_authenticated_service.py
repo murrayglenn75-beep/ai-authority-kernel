@@ -1,4 +1,5 @@
 import os
+import threading
 import tempfile
 import unittest
 from aak import Ed25519Signer, DistributedBoundaryError
@@ -46,6 +47,34 @@ class AuthenticatedTransportTests(unittest.TestCase):
             with self.assertRaises(DistributedBoundaryError):
                 restarted.handle(msg,now=101,endpoint=endpoint)
             new.close()
+
+    def test_competing_verifiers_only_one_accepts_same_signed_nonce(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "shared-nonce.db")
+            a, b = ServiceReplayLedger(path), ServiceReplayLedger(path)
+            signer = Ed25519Signer.generate()
+            verifier = Ed25519Signer.verifier(signer.public_key_bytes)
+            services = [AuthenticatedServiceDispatch(
+                destination="broker", trusted_peers={"resource":verifier},
+                ledger=ledger) for ledger in (a,b)]
+            signed = sign_service_request(signer,"resource","broker",
+                "/v1/actions",{"request":"once"},100,"simultaneous")
+            barrier = threading.Barrier(2)
+            accepted, denied = [], []
+            def run(service):
+                try:
+                    barrier.wait(timeout=5)
+                    accepted.append(service.verify(signed,now=101))
+                except DistributedBoundaryError:
+                    denied.append(1)
+            threads = [threading.Thread(target=run,args=(s,)) for s in services]
+            for worker in threads: worker.start()
+            for worker in threads: worker.join(timeout=10)
+            self.assertTrue(all(not worker.is_alive() for worker in threads))
+            self.assertEqual(len(accepted),1)
+            self.assertEqual(len(denied),1)
+            a.close()
+            b.close()
 
 if __name__=="__main__":
     unittest.main()
