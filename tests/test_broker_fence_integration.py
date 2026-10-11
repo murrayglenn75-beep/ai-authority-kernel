@@ -26,7 +26,7 @@ class BrokerFenceIntegration(unittest.TestCase):
             active = {"owner": "worker-old", "token": old}
             def fence(grant, now):
                 lease.dispatch_once("run", active["owner"], active["token"],
-                                    "a" * 64, now)
+                                    grant.envelope.transaction_id, now)
             verifier = ActionEnvelopeVerifier(
                 Ed25519Signer.verifier(fixture.envelope_key.public_key_bytes),
                 ToolManifestVerifier(
