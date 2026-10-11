@@ -28,6 +28,15 @@ class PostgresFencingStore:
                 run_id text NOT NULL, token bigint NOT NULL,
                 state text NOT NULL CHECK(state='pending')
             )""")
+            self.db.execute("""CREATE TABLE IF NOT EXISTS aak_fenced_request_bindings (
+                transaction_id text PRIMARY KEY REFERENCES aak_fenced_dispatch(transaction_id),
+                request_hash text NOT NULL
+            )""")
+            self.db.execute("""CREATE TABLE IF NOT EXISTS aak_provider_outcomes (
+                transaction_id text PRIMARY KEY REFERENCES aak_fenced_dispatch(transaction_id),
+                decision text NOT NULL CHECK(decision IN ('record_success','record_rejection')),
+                receipt_hash text NOT NULL
+            )""")
 
     def acquire(self, run_id: str, owner: str, ttl: int) -> int:
         if (not isinstance(run_id, str) or not run_id or not isinstance(owner, str)
@@ -51,10 +60,12 @@ class PostgresFencingStore:
                 (run_id, owner, token, ttl))
             return token
 
-    def dispatch_once(self, run_id: str, owner: str, token: int, tx: str) -> None:
+    def dispatch_once(self, run_id: str, owner: str, token: int, tx: str, *, request_hash: str | None = None) -> None:
         if (not isinstance(run_id, str) or not run_id or not isinstance(owner, str)
                 or not owner or type(token) is not int or token < 1
-                or not isinstance(tx, str) or not 1 <= len(tx) <= 256):
+                or not isinstance(tx, str) or not 1 <= len(tx) <= 256
+                or (request_hash is not None and (not isinstance(request_hash, str)
+                    or not 1 <= len(request_hash) <= 256))):
             raise ValueError("invalid dispatch")
         with self.db.transaction():
             row = self.db.execute(
@@ -66,6 +77,10 @@ class PostgresFencingStore:
             # Unique tx prevents re-dispatch following crash/unknown provider commit.
             self.db.execute("INSERT INTO aak_fenced_dispatch VALUES(%s,%s,%s,'pending')",
                             (tx, run_id, token))
+            if request_hash is not None:
+                self.db.execute(
+                    "INSERT INTO aak_fenced_request_bindings VALUES(%s,%s)",
+                    (tx, request_hash))
 
 
     def broker_fence(self, *, run_id: str, owner: str, token: int):
@@ -82,7 +97,8 @@ class PostgresFencingStore:
             from .distributed import GatewayGrant
             if not isinstance(grant, GatewayGrant):
                 raise LeaseDenied("invalid grant for fence")
-            self.dispatch_once(run_id, owner, token, grant.envelope.transaction_id)
+            self.dispatch_once(run_id, owner, token, grant.envelope.transaction_id,
+                               request_hash=grant.call.request_hash)
         return enforce
 
     def pending(self, transaction_id: str):
@@ -93,6 +109,36 @@ class PostgresFencingStore:
             return self.db.execute(
                 "SELECT run_id,token,state FROM aak_fenced_dispatch "
                 "WHERE transaction_id=%s", (transaction_id,)).fetchone()
+
+    def record_verified_outcome(self, receipt: object, verifier):
+        """Append immutable signed-provider outcome only for a bound pending tx.
+
+        Does not retry, execute, or erase pending reservations. The provider
+        verifier must be explicitly configured with independently trusted keys.
+        """
+        from .reliability_contract import RecoveryDecision
+        from .canonical import canonical_bytes
+        import hashlib
+        if not isinstance(receipt, dict):
+            return RecoveryDecision.REQUIRE_OPERATOR
+        transaction_id = receipt.get("transaction_id")
+        if not isinstance(transaction_id, str) or not transaction_id:
+            return RecoveryDecision.REQUIRE_OPERATOR
+        with self.db.transaction():
+            row = self.db.execute(
+                "SELECT request_hash FROM aak_fenced_request_bindings "
+                "WHERE transaction_id=%s FOR UPDATE", (transaction_id,)).fetchone()
+            if row is None:
+                return RecoveryDecision.REQUIRE_OPERATOR
+            decision = verifier.classify(transaction_id, row[0], receipt)
+            if decision not in (RecoveryDecision.RECORD_SUCCESS,
+                                RecoveryDecision.RECORD_REJECTION):
+                return RecoveryDecision.REQUIRE_OPERATOR
+            receipt_hash = hashlib.sha256(canonical_bytes(receipt)).hexdigest()
+            self.db.execute(
+                "INSERT INTO aak_provider_outcomes VALUES(%s,%s,%s)",
+                (transaction_id, decision.value, receipt_hash))
+            return decision
 
     def close(self):
         self.db.close()
