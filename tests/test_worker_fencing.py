@@ -2,6 +2,8 @@
 import os
 import tempfile
 import threading
+import subprocess
+import sys
 import unittest
 from aak.worker_fencing import SQLiteFencingStore, LeaseDenied
 
@@ -26,6 +28,30 @@ class WorkerFencingTests(unittest.TestCase):
             self.assertEqual(b.db.execute("SELECT count(*) FROM fenced_dispatch").fetchone()[0], 1)
             a.close()
             b.close()
+
+    def test_worker_process_crash_and_fenced_takeover(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "fence.db")
+            # A separate interpreter owns the initial lease and terminates
+            # abruptly, deliberately omitting SQLite connection cleanup.
+            worker = (
+                "import os,sys;"
+                "from aak.worker_fencing import SQLiteFencingStore;"
+                "s=SQLiteFencingStore(sys.argv[1]);"
+                "assert s.acquire('crash','worker-old',100,10)==1;"
+                "os._exit(0)"
+            )
+            subprocess.run([sys.executable, "-c", worker, path],
+                           check=True, timeout=10)
+            recovered = SQLiteFencingStore(path)
+            with self.assertRaises(LeaseDenied):
+                recovered.acquire("crash", "worker-new", 109, 10)
+            fresh_token = recovered.acquire("crash", "worker-new", 110, 10)
+            self.assertEqual(fresh_token, 2)
+            with self.assertRaises(LeaseDenied):
+                recovered.dispatch_once("crash", "worker-old", 1, "f" * 64, 111)
+            recovered.dispatch_once("crash", "worker-new", 2, "e" * 64, 111)
+            recovered.close()
 
     def test_concurrent_acquire_single_winner_and_restart(self):
         with tempfile.TemporaryDirectory() as d:
