@@ -57,6 +57,8 @@ jobs:
         run: PYTHONPATH=. python -m unittest discover -s tests -p test_broker_fence_integration.py -q
       - name: Run worker fencing tests
         run: PYTHONPATH=. python -m unittest discover -s tests -p test_worker_fencing.py -q
+      - name: Verify provider reconciliation receipts
+        run: PYTHONPATH=. python -m unittest discover -s tests -p test_provider_reconciliation.py -q
       - name: Run synthetic reliability matrix
         run: PYTHONPATH=. python benchmark_agent_reliability.py
       - name: Check syntax
