@@ -26,10 +26,12 @@ class RealTransportBoundaryTests(unittest.TestCase):
         fence.initialize()
         ledger = PostgresServiceReplayLedger(dsn)
         ledger.initialize()
-        signer = Ed25519Signer.generate()
-        verifier = Ed25519Signer.verifier(signer.public_key_bytes)
+        signers = {"worker-A":Ed25519Signer.generate(),
+                   "worker-B":Ed25519Signer.generate()}
+        trusted = {peer:Ed25519Signer.verifier(key.public_key_bytes)
+                   for peer,key in signers.items()}
         guard = AuthenticatedServiceDispatch(
-            destination="broker", trusted_peers={"worker-A":verifier,"worker-B":verifier},
+            destination="broker", trusted_peers=trusted,
             ledger=ledger)
         first = fence.acquire("tcp-isolation-run","worker-A",30)
         self.assertEqual(first,1)
@@ -68,7 +70,7 @@ class RealTransportBoundaryTests(unittest.TestCase):
         t=threading.Thread(target=server.serve_forever,daemon=True)
         t.start()
         def send(peer,nonce,transaction):
-            message=sign_service_request(signer,peer,"broker","/execute",
+            message=sign_service_request(signers[peer],peer,"broker","/execute",
                 {"transaction":transaction},101,nonce)
             raw=json.dumps(message).encode()
             request=Request(f"http://127.0.0.1:{server.server_port}/",
@@ -94,6 +96,11 @@ class RealTransportBoundaryTests(unittest.TestCase):
                 self.assertEqual(second,2)
                 current["worker-B"]=second
                 self.assertEqual(send("worker-A","n2","effect-stale"),403)
+                # Forging another identity with the old worker key fails.
+                forged=sign_service_request(signers["worker-A"],"worker-B",
+                    "broker","/execute",{"transaction":"impersonated"},101,"n-forged")
+                with self.assertRaises(Exception):
+                    guard.verify(forged,now=101)
                 self.assertEqual(send("worker-B","n3","effect-2"),200)
                 self.assertEqual(send("worker-B","n3","effect-2"),403)
                 self.assertEqual(calls,["effect-1","effect-2"])
