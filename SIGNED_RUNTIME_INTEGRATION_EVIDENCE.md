@@ -40,3 +40,6 @@ The scenario reuses `DistributedServiceTests` genuine fixture:
 - Execute dynamic GatewayService authorization with per-run identity and approval.
 - Run independently deployed process/service topology against a real provider sandbox.
 - Implement shared durable fencing and prove crash/restart/reconcile behavior.
+
+## Transaction identity binding hardening (October 10, later revision)
+`ExactGrantBoundary` now denies a GatewayGrant if its signed envelope transaction ID differs from the runtime checkpoint ID. The signed integration fixture issues a fresh grant through `GatewayService.authorize_mcp` with a new identity assertion and runtime transaction ID. The standalone regression includes a deliberately mismatched transaction ID and verifies it cannot reach the resource executor. This is an **equality check against signed data**; AAK resource and broker must still cryptographically validate the envelope and replay ledger. AAK's default gateway id_factory remains operator-configured, so callers MUST propagate the runtime ID when requesting a grant; mismatches fail closed. CI status must be checked separately.
