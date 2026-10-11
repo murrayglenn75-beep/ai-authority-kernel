@@ -23,6 +23,7 @@ class PostgreSQLFencingIntegration(unittest.TestCase):
             self.a.db.execute("DELETE FROM aak_fenced_request_bindings")
             self.a.db.execute("DELETE FROM aak_fenced_dispatch")
             self.a.db.execute("DELETE FROM aak_worker_leases")
+            self.a.db.execute("CREATE TABLE IF NOT EXISTS aak_service_nonces (destination text NOT NULL, peer text NOT NULL, nonce text NOT NULL, PRIMARY KEY(destination,peer,nonce))")
             self.a.db.execute("DELETE FROM aak_service_nonces")
 
     def tearDown(self):
