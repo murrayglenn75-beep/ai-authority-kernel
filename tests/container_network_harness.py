@@ -70,6 +70,7 @@ def orchestrate():
     import time
     import uuid
     from aak.crypto import b64encode
+    from cryptography.hazmat.primitives import serialization
     suffix=uuid.uuid4().hex[:10]
     network="aak-proof-"+suffix
     db_name="aak-db-"+suffix
@@ -129,7 +130,21 @@ def orchestrate():
         new=claim("worker-B",expire=True)
         assert new>old
         assert worker("worker-A",old,"tx-stale")==3
-        assert worker("worker-B",new,"tx-second")==0
+        # Inject a real Docker network disconnection for the obsolete worker.
+        # The broker and PostgreSQL remain reachable to other containers.
+        isolation_name="aak-isolated-"+suffix
+        try:
+            docker("run","-d","--name",isolation_name,"--network",network,
+                "-e","AAK_TEST_POSTGRES_DSN="+dsn,
+                "-e","AAK_PRIVATE="+b64encode(a._private_key.private_bytes(
+                    serialization.Encoding.Raw,serialization.PrivateFormat.Raw,
+                    serialization.NoEncryption())),
+                --entrypoint","sleep",image,"120",check=True)
+            docker("network","disconnect","-f",network,isolation_name)
+            # Isolation must not affect the authority check for a new owner.
+            assert worker("worker-B",new,"tx-second")==0
+        finally:
+            docker("rm","-f",isolation_name,check=False)
         assert worker("worker-B",new,"tx-second")==3
         print("container_network_proof=passed stale_worker=denied replay=denied")
     finally:
