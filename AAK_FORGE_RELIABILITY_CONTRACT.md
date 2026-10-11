@@ -82,3 +82,19 @@ coordination mechanism. Real infrastructure and provider-sandbox proof remain
 deployment gates.
 
 A further regression now starts a separate Python worker process, commits a lease, ends abruptly with `os._exit(0)` (no connection close), and has another process attempt takeover before/after lease expiry. This exercises local OS process termination and SQLite WAL persistence, but does not exercise remote network partitions or an external provider.
+
+## Opt-in broker-side fence hook (October 2026)
+`VerifyingEffectBroker` supports an optional `dispatch_fence(grant, now)` injected
+by its trusted host. It is invoked **after** signature, input-policy and signed
+authorization-audit checks, and **before** replay consumption and the external
+provider call. Any raised exception fails closed as
+`broker_dispatch_fence_denied`. `test_broker_fence_integration.py` uses the
+existing signed fixture, checks that an expired worker does not reach the fake
+provider, that a current worker reaches it once, and that replay is refused.
+It does not enable fencing automatically; installations must supply an
+authoritative checker. A lease reservation is not a distributed transaction
+with provider commit. The fence currently requires a local SQLite process and
+therefore cannot guarantee downstream stale-worker exclusion after a network
+partition. Production integration must bind reservation keys to signed
+provider operation IDs, use a shared strongly consistent store, and reconcile
+ambiguous effects.
