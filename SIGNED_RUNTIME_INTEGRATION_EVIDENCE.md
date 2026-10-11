@@ -43,3 +43,6 @@ The scenario reuses `DistributedServiceTests` genuine fixture:
 
 ## Transaction identity binding hardening (October 10, later revision)
 `ExactGrantBoundary` now denies a GatewayGrant if its signed envelope transaction ID differs from the runtime checkpoint ID. The signed integration fixture issues a fresh grant through `GatewayService.authorize_mcp` with a new identity assertion and runtime transaction ID. The standalone regression includes a deliberately mismatched transaction ID and verifies it cannot reach the resource executor. This is an **equality check against signed data**; AAK resource and broker must still cryptographically validate the envelope and replay ledger. AAK's default gateway id_factory remains operator-configured, so callers MUST propagate the runtime ID when requesting a grant; mismatches fail closed. CI status must be checked separately.
+
+## Local concurrency and crash-journal checks
+Added `tests/test_runtime_journal_concurrency.py` and a dedicated CI step. Scenarios race two SQLite connections to insert an identical pending transaction, reopen the database after a simulated crash following pending, and verify that a run cannot finish while an effect is still pending. This is SQLite *single-host* concurrency, **not** multi-host fencing, true process kills or provider reconciliation.
