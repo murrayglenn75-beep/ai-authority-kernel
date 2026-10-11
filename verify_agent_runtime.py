@@ -214,7 +214,7 @@ def verify():
     valid_call = ToolCall("mcp", "c1", "publish", "resource-1", "service-1", {"amount": 1})
     manifest = SimpleNamespace(action="publish", resource="resource-1", audience="service-1")
     dispatched = []
-    valid_grant = GatewayGrant(valid_call, manifest, SimpleNamespace())
+    valid_grant = GatewayGrant(valid_call, manifest, SimpleNamespace(transaction_id="a" * 64))
     ExactGrantBoundary(lambda req, tx: valid_grant, dispatched.append,
                        allowed_actions=frozenset({"publish"}))(proposed, "a" * 64)
     assert len(dispatched) == 1
@@ -223,7 +223,7 @@ def verify():
         ToolCall("mcp", "c3", "publish", "wrong-resource", "service-1", {"amount": 1}),
         ToolCall("mcp", "c4", "publish", "resource-1", "wrong-audience", {"amount": 1}),
     ):
-        bad_grant = GatewayGrant(bad_call, manifest, SimpleNamespace())
+        bad_grant = GatewayGrant(bad_call, manifest, SimpleNamespace(transaction_id="a" * 64))
         denied = ExactGrantBoundary(lambda req, tx: bad_grant, dispatched.append,
                                     allowed_actions=frozenset({"publish"}))
         try:
@@ -232,6 +232,16 @@ def verify():
             pass
         else:
             raise AssertionError("AAK mismatched grant accepted")
+    assert len(dispatched) == 1
+    wrong_transaction = GatewayGrant(
+        valid_call, manifest, SimpleNamespace(transaction_id="b" * 64))
+    try:
+        ExactGrantBoundary(lambda req, tx: wrong_transaction, dispatched.append,
+                           allowed_actions=frozenset({"publish"}))(proposed, "a" * 64)
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError("transaction mismatch accepted")
     assert len(dispatched) == 1
 
     agent, effects, _ = runtime([RuntimeError("malformed model adapter")])
