@@ -1,5 +1,8 @@
 # AI Authority Kernel (AAK) v1.6.0-rc1
 
+> **Independent review:** [Reproduce the checks and inspect the trust boundaries](docs/REVIEWER_QUICKSTART.md). This guide separates documented evidence from production guarantees.
+
+
 ## 30-second overview
 
 **AI Authority Kernel (AAK) is a security layer that sits between an AI agent and the tools or APIs it wants to use.** The model can request an action, but it cannot authorize itself.
