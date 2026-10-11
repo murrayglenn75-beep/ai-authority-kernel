@@ -34,3 +34,6 @@ No production external calls or credentials should be introduced by CI. Do not m
 
 ## Signed service transport prototype
 `aak/authenticated_service.py` adds a signed peer/destination/path/body/timestamp/nonce envelope and a durable SQLite nonce replay ledger. CI checks forged peers, tampered destinations/bodies, stale timestamps and replay across restarts. The verified peer identity is passed to strict endpoint handlers only after signature checks. This is *application-level identity proof*; production requires authenticated TLS, strict transport byte limits, durable multi-replica replay state, scoped keys and a deployed-service network test. The demonstration uses no production provider credentials.
+
+## Shared signed-request replay coordination
+`aak/postgres_service_replay.py` stores destination/peer/nonce as a PostgreSQL unique key, allowing separate verifier instances to reject the same signed request through independent DB connections. `AuthenticatedServiceDispatch` now fails closed when ledger access raises an exception. The PostgreSQL CI scenario tests reuse, tampering and independently signed destinations. The earlier SQLite ledger remains single-host only. This does not certify actual cross-host network failure behavior, TLS channel binding, or provisioning of identity keys.
