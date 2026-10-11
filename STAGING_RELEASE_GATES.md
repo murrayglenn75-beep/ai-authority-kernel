@@ -43,3 +43,7 @@ GitHub Actions runs on an ephemeral runner and a disposable PostgreSQL service; 
 
 ## Database connection-failure injection
 The PostgreSQL CI suite also terminates an independently connected PostgreSQL backend while a dispatch reservation remains uncommitted. It checks that PostgreSQL rolls back the incomplete reservation and that a later authorized reservation can be created. This is a session-disconnect/rollback test, **not** a partitioned external provider or multi-region application test. A durable committed pending record is never automatically replayed.
+
+## Provider reconciliation evidence verifier
+- Added provider_reconciliation.VerifiedProviderReconciliation which checks the full signed receipt with an operator-configured trusted public key, exact transaction ID and exact request fingerprint. Tampered receipts, unknown keys, non-definitive states and mismatched IDs remain REQUIRE_OPERATOR. The verifier cannot mint authority and never retries effects.
+- The simulated signing key is a test-only provider fixture. **A real provider must actually issue or supply verifiable authenticated evidence** through a provider-specific connector. The API does not currently bind the request fingerprint to PostgreSQL pending journal rows; that linkage is a remaining release blocker before automated state settlement.
