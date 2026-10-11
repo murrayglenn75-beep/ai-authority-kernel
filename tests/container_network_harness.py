@@ -139,8 +139,11 @@ def orchestrate():
                 "-e","AAK_PRIVATE="+b64encode(a._private_key.private_bytes(
                     serialization.Encoding.Raw,serialization.PrivateFormat.Raw,
                     serialization.NoEncryption())),
-                --entrypoint","sleep",image,"120",check=True)
+                "--entrypoint","sleep",image,"120",check=True)
             docker("network","disconnect","-f",network,isolation_name)
+            isolated=docker("exec",isolation_name,"python","-c",
+                "import socket;socket.create_connection(('broker',8080),2)",check=False)
+            assert isolated.returncode != 0, "isolated worker could still reach broker"
             # Isolation must not affect the authority check for a new owner.
             assert worker("worker-B",new,"tx-second")==0
         finally:
