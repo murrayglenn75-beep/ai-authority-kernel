@@ -91,7 +91,7 @@ def orchestrate():
             if probe.returncode==0: break
             time.sleep(0.3)
         else: raise RuntimeError("postgres not ready")
-        docker("run","-d","--name",broker_name,"--network",network,
+        docker("run","-d","--name",broker_name,"--network",network,"--network-alias","broker",
                "-e","AAK_TEST_POSTGRES_DSN="+dsn,
                "-e","AAK_PUBLIC_A="+b64encode(a.public_key_bytes),
                "-e","AAK_PUBLIC_B="+b64encode(b.public_key_bytes),
