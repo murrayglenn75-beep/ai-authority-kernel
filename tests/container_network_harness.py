@@ -15,7 +15,7 @@ from aak.postgres_service_replay import PostgresServiceReplayLedger
 from aak.authenticated_service import AuthenticatedServiceDispatch, sign_service_request
 from aak import Ed25519Signer
 
-DSN=os.environ["AAK_TEST_POSTGRES_DSN"]
+DSN=os.environ.get("AAK_TEST_POSTGRES_DSN", "")
 
 def post(url, message):
     raw=json.dumps(message).encode()
@@ -66,20 +66,94 @@ def worker(identity,token,tx):
     return post("http://broker:8080/",signed)
 
 def orchestrate():
-    from subprocess import run
+    import subprocess
+    import time
+    import uuid
     from aak.crypto import b64encode
+    suffix=uuid.uuid4().hex[:10]
+    network="aak-proof-"+suffix
+    db_name="aak-db-"+suffix
+    broker_name="aak-broker-"+suffix
+    image=os.environ.get("AAK_STAGING_IMAGE","aak-proof:ci")
     a,b=Ed25519Signer.generate(),Ed25519Signer.generate()
+    keys={"worker-A":a,"worker-B":b}
+    def docker(*args,check=True):
+        return subprocess.run(["docker",*args],check=check,text=True,
+                              stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=45)
+    docker("network","create",network)
+    try:
+        docker("run","-d","--name",db_name,"--network",network,
+               "-e","POSTGRES_USER=aaktest","-e","POSTGRES_PASSWORD=local_ci_only",
+               "-e","POSTGRES_DB=aaktest","postgres:16")
+        dsn="postgresql://aaktest:local_ci_only@"+db_name+":5432/aaktest"
+        for _ in range(35):
+            probe=docker("exec",db_name,"pg_isready","-U","aaktest","-d","aaktest",check=False)
+            if probe.returncode==0: break
+            time.sleep(0.3)
+        else: raise RuntimeError("postgres not ready")
+        docker("run","-d","--name",broker_name,"--network",network,
+               "-e","AAK_TEST_POSTGRES_DSN="+dsn,
+               "-e","AAK_PUBLIC_A="+b64encode(a.public_key_bytes),
+               "-e","AAK_PUBLIC_B="+b64encode(b.public_key_bytes),
+               image,"broker")
+        def worker(identity,token,tx):
+            signer=keys[identity]
+            # Ed25519 raw private bytes are available only to the worker container.
+            from cryptography.hazmat.primitives import serialization
+            raw=signer._private_key.private_bytes(
+                serialization.Encoding.Raw,serialization.PrivateFormat.Raw,
+                serialization.NoEncryption())
+            result=docker("run","--rm","--network",network,
+                "-e","AAK_TEST_POSTGRES_DSN="+dsn,
+                "-e","AAK_PRIVATE="+b64encode(raw),
+                image,"worker",identity,str(token),tx,check=False)
+            if result.returncode not in (0,3):
+                raise RuntimeError("worker failed: "+result.stderr[-500:])
+            return result.returncode
+        for _ in range(30):
+            # Check the broker actually accepts connections before dispatching.
+            probe=docker("exec",broker_name,"python","-c",
+                "import socket;socket.create_connection(('127.0.0.1',8080),1).close()",
+                check=False)
+            if probe.returncode==0: break
+            time.sleep(0.2)
+        else: raise RuntimeError("broker not ready")
+        # The coordinator uses a separate container and a shared database.
+        def claim(owner,expire=False):
+            result=docker("run","--rm","--network",network,
+                "-e","AAK_TEST_POSTGRES_DSN="+dsn,image,
+                "claim",owner,"expire" if expire else "new")
+            return int(result.stdout.strip())
+        old=claim("worker-A")
+        assert worker("worker-A",old,"tx-first")==0
+        new=claim("worker-B",expire=True)
+        assert new>old
+        assert worker("worker-A",old,"tx-stale")==3
+        assert worker("worker-B",new,"tx-second")==0
+        assert worker("worker-B",new,"tx-second")==3
+        print("container_network_proof=passed stale_worker=denied replay=denied")
+    finally:
+        docker("rm","-f",broker_name,check=False)
+        docker("rm","-f",db_name,check=False)
+        docker("network","rm",network,check=False)
+
+def claim(owner,mode):
     fence=PostgresFencingStore(DSN)
     fence.initialize()
-    token_a=fence.acquire("container-run","worker-A",30)
-    env=os.environ.copy()
-    env["AAK_PUBLIC_A"]=b64encode(a.public_key_bytes)
-    env["AAK_PUBLIC_B"]=b64encode(b.public_key_bytes)
-    # Both workers communicate with broker over the compose service network.
-    # Broker is started with public keys injected into its environment.
-    print(json.dumps({"public_A":env["AAK_PUBLIC_A"],"public_B":env["AAK_PUBLIC_B"],
-                      "token_a":token_a}))
+    if mode=="expire":
+        with fence.db.transaction():
+            fence.db.execute("UPDATE aak_worker_leases SET expires_at="
+                "clock_timestamp()-interval '1 second' WHERE run_id='container-run'")
+    token=fence.acquire("container-run",owner,30)
+    print(token,flush=True)
     fence.close()
 
 if __name__=="__main__":
-    {"broker":broker,"orchestrate":orchestrate}[sys.argv[1]]()
+    op=sys.argv[1]
+    if op=="broker": broker()
+    elif op=="worker":
+        code=worker(sys.argv[2],int(sys.argv[3]),sys.argv[4])
+        sys.exit(0 if code==200 else 3 if code==403 else 5)
+    elif op=="claim": claim(sys.argv[2],sys.argv[3])
+    elif op=="orchestrate": orchestrate()
+    else: raise ValueError("invalid command")
