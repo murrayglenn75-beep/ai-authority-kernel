@@ -23,6 +23,7 @@ class PostgreSQLFencingIntegration(unittest.TestCase):
             self.a.db.execute("DELETE FROM aak_fenced_request_bindings")
             self.a.db.execute("DELETE FROM aak_fenced_dispatch")
             self.a.db.execute("DELETE FROM aak_worker_leases")
+            self.a.db.execute("DELETE FROM aak_service_nonces")
 
     def tearDown(self):
         self.a.close()
@@ -219,6 +220,32 @@ class PostgreSQLFencingIntegration(unittest.TestCase):
         results = [json.loads(out.strip()) for out, _ in outputs]
         self.assertEqual(sum("won" in item for item in results), 1, results)
         self.assertEqual(sum("denied" in item for item in results), 1, results)
+
+    def test_postgres_signed_service_replay_between_instances(self):
+        from aak.postgres_service_replay import PostgresServiceReplayLedger
+        from aak.authenticated_service import AuthenticatedServiceDispatch, sign_service_request
+        from aak import Ed25519Signer, DistributedBoundaryError
+        one = PostgresServiceReplayLedger(self.dsn)
+        two = PostgresServiceReplayLedger(self.dsn)
+        one.initialize()
+        key = Ed25519Signer.generate()
+        trusted = {"resource": Ed25519Signer.verifier(key.public_key_bytes)}
+        first = AuthenticatedServiceDispatch(destination="broker",trusted_peers=trusted,ledger=one)
+        second = AuthenticatedServiceDispatch(destination="broker",trusted_peers=trusted,ledger=two)
+        signed = sign_service_request(key,"resource","broker","/test",{"x":1},100,"nonce-pg")
+        try:
+            self.assertEqual(first.verify(signed,now=101)[0],"resource")
+            with self.assertRaisesRegex(DistributedBoundaryError,"service_replay_denied"):
+                second.verify(signed,now=101)
+            with self.assertRaisesRegex(DistributedBoundaryError,"service_signature_denied"):
+                second.verify({**signed,"payload":{"x":2}},now=101)
+            # Same nonce is allowed on a different signed destination.
+            for_audit = sign_service_request(key,"resource","audit","/test",{},100,"nonce-pg")
+            audit = AuthenticatedServiceDispatch(destination="audit",trusted_peers=trusted,ledger=two)
+            self.assertEqual(audit.verify(for_audit,now=101)[0],"resource")
+        finally:
+            one.close()
+            two.close()
 
     def test_two_independent_connections_one_lease_winner(self):
         barrier = threading.Barrier(2)
