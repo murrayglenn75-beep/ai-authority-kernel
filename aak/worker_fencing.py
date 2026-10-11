@@ -57,8 +57,7 @@ class SQLiteFencingStore:
     def dispatch_once(self, run_id: str, owner: str, token: int, tx: str, now: int) -> None:
         """Broker-side atomic fence check + pending marker. Never retry uncertain tx."""
         if (not isinstance(run_id, str) or not run_id or not isinstance(owner, str)
-                or not owner or not isinstance(tx, str) or len(tx) != 64 or
-                any(ch not in "0123456789abcdef" for ch in tx) or
+                or not owner or not isinstance(tx, str) or not 1 <= len(tx) <= 256 or
                 type(token) is not int or token < 1 or type(now) is not int):
             raise ValueError("invalid dispatch")
         with self.lock:
