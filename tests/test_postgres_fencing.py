@@ -65,6 +65,66 @@ class PostgreSQLFencingIntegration(unittest.TestCase):
             self.a.dispatch_once("crash", "old", 1, "provider-transaction")
         self.b.dispatch_once("crash", "new", 2, "provider-transaction")
 
+    def test_broker_hook_reserves_exact_signed_transaction(self):
+        from test_distributed import DistributedServiceTests, valid_close
+        from aak import (ActionEnvelopeVerifier, ToolManifestVerifier, Ed25519Signer,
+                         VerifyingEffectBroker, InputPolicy, SQLiteBrokerReplayStore,
+                         DurableAuditAnchor, DistributedBoundaryError)
+        from aak.canonical import digest
+        import tempfile
+        from pathlib import Path
+        fixture = DistributedServiceTests(methodName=
+            "test_exact_grant_executes_once_without_exposing_credential")
+        fixture.setUp()
+        token = self.a.acquire("broker-run", "worker-1", 30)
+        fake_calls = []
+        with tempfile.TemporaryDirectory() as directory:
+            audit = DurableAuditAnchor(Path(directory)/"audit.db", fixture.audit_key,
+                                       anchor_id=fixture.audit_id)
+            replay = SQLiteBrokerReplayStore(Path(directory)/"broker.db")
+            verifier = ActionEnvelopeVerifier(
+                Ed25519Signer.verifier(fixture.envelope_key.public_key_bytes),
+                ToolManifestVerifier(
+                    Ed25519Signer.verifier(fixture.manifest_key.public_key_bytes)),
+                expected_audience="crm-api")
+            active = {"token": token}
+            broker = VerifyingEffectBroker(
+                verifier=verifier,
+                provider=lambda **kw: fake_calls.append(kw) or
+                    {"provider_reference":"test-only"},
+                allowed_origins=("https://crm.example",),
+                audit_anchor_id=fixture.audit_id,
+                audit_verifiers={fixture.audit_key.key_id:
+                    Ed25519Signer.verifier(fixture.audit_key.public_key_bytes)},
+                replay_store=replay,
+                input_policies={"crm.ticket.update":InputPolicy(
+                    fixture.manifest.input_schema_hash, valid_close)},
+                dispatch_fence=self.a.broker_fence(
+                    run_id="broker-run", owner="worker-1", token=token))
+            action_hash = digest(fixture.grant.envelope.claim())
+            event = {"type":"action_authorized",
+                "envelope_id":fixture.grant.envelope.envelope_id,
+                "transaction_id":fixture.grant.envelope.transaction_id,
+                "request_hash":fixture.grant.call.request_hash,
+                "agent_identity":fixture.grant.envelope.agent_identity,
+                "policy_decision_id":fixture.grant.envelope.policy_decision_id,
+                "action_hash":action_hash}
+            receipt = audit.append(event)
+            kwargs = dict(origin="https://crm.example", audience="crm-api",
+                action_hash=action_hash,call=fixture.grant.call,grant=fixture.grant,
+                now=102,authorization_event=event,authorization_receipt=receipt)
+            try:
+                broker.execute(**kwargs)
+                self.assertEqual(len(fake_calls), 1)
+                tx = fixture.grant.envelope.transaction_id
+                self.assertEqual(self.a.pending(tx), ("broker-run", token, "pending"))
+                with self.assertRaises(DistributedBoundaryError):
+                    broker.execute(**kwargs)
+                self.assertEqual(len(fake_calls), 1)
+            finally:
+                replay.close()
+                audit.close()
+
     def test_two_independent_connections_one_lease_winner(self):
         barrier = threading.Barrier(2)
         won, denied = [], []
