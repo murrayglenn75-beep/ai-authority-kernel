@@ -134,7 +134,8 @@ class ExactGrantBoundary:
         grant = self.grant_provider(request, transaction_id)
         if not isinstance(grant, GatewayGrant):
             raise PermissionError("missing canonical AAK grant")
-        if (grant.call.action != request.name
+        if (not hmac.compare_digest(grant.envelope.transaction_id, transaction_id)
+                or grant.call.action != request.name
                 or grant.manifest.action != request.name
                 or grant.call.action != grant.manifest.action
                 or grant.call.resource != grant.manifest.resource
