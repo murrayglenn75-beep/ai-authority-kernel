@@ -21,7 +21,7 @@ class ServiceReplayLedger:
         self.db.execute("CREATE TABLE IF NOT EXISTS service_nonces (peer TEXT NOT NULL,nonce TEXT NOT NULL, PRIMARY KEY(peer,nonce))")
         self.lock = threading.RLock()
 
-    def accept(self, peer, nonce):
+    def accept(self, peer, nonce, *, destination=None):
         with self.lock:
             try:
                 self.db.execute("INSERT INTO service_nonces(peer,nonce) VALUES(?,?)", (peer,nonce))
@@ -77,9 +77,8 @@ class AuthenticatedServiceDispatch:
             raise DistributedBoundaryError("service_signature_denied")
         try:
             accepted = self.ledger.accept(peer, message["nonce"], destination=self.destination)
-        except TypeError:
-            # Backward-compatible single-process ledger; multi-host must use PostgreSQL.
-            accepted = self.ledger.accept(peer, message["nonce"])
+        except Exception as exc:
+            raise DistributedBoundaryError("service_replay_store_unavailable") from exc
         if not accepted:
             raise DistributedBoundaryError("service_replay_denied")
         return peer, message["path"], dict(message["payload"])
