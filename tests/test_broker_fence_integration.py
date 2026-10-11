@@ -62,6 +62,7 @@ class BrokerFenceIntegration(unittest.TestCase):
                 active.update(owner="worker-new", token=current)
                 self.assertEqual(broker.execute(**arguments)["provider_reference"], "ok")
                 self.assertEqual(len(calls), 1)
+                self.assertEqual(lease.db.execute("SELECT tx FROM fenced_dispatch").fetchone()[0], fixture.grant.envelope.transaction_id)
                 with self.assertRaises(DistributedBoundaryError):
                     broker.execute(**arguments)
                 self.assertEqual(len(calls), 1)
