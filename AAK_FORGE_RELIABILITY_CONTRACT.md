@@ -101,3 +101,24 @@ ambiguous effects.
 
 ### Exact provider-operation fencing identity
 The broker integration fixture now reserves `grant.envelope.transaction_id` directly in the fencing journal and asserts the persisted reservation is identical to the operation ID passed to the provider. The journal permits bounded opaque signed transaction IDs because AAK's gateway issues IDs that need not be 64-character hexadecimal hashes. This protects against accidental reservation of an unrelated placeholder ID, but it does not by itself make the local fencing hook multi-host safe or provide atomicity between the local database and an external provider.
+
+## Shared PostgreSQL coordination prototype (October 2026)
+`aak.postgres_fencing.PostgresFencingStore` uses PostgreSQL's transaction-scoped
+advisory lock plus row-level locking for missing-row and established-lease
+serialization. Tokens increase across lease takeover; expiration is evaluated
+with **database clock_timestamp()**, not unsynchronized worker clocks. An
+independent transaction checks owner/token/expiry under row lock and inserts
+a globally unique pending provider transaction ID. A second attempt to
+reserve that ID is rejected. Tests in `test_postgres_fencing.py` race
+independent connections and validate stale worker denial/replay prevention.
+GitHub Actions provisions a disposable PostgreSQL 16 service.
+
+**Not production certification:** Neither the PostgreSQL prototype nor the
+test job deploy independent application hosts or inject network partitions.
+Provider commits and database reservations cannot commit atomically;
+`pending` requires authenticated provider reconciliation rather than
+automatic replay. The existing AAK broker's optional fence hook must be
+supplied with trusted run/worker/token context by its deploying service.
+Use a dedicated least-privilege coordination database; do not point the test
+at a production DSN. A passing PostgreSQL job is necessary evidence, not
+proof of globally exactly-once external effects.
