@@ -67,5 +67,32 @@ class PostgresFencingStore:
             self.db.execute("INSERT INTO aak_fenced_dispatch VALUES(%s,%s,%s,'pending')",
                             (tx, run_id, token))
 
+
+    def broker_fence(self, *, run_id: str, owner: str, token: int):
+        """Build a broker-owned hook, never using model-provided lease details.
+
+        The deployer must securely associate this lease with the granted run.
+        The grant's signed operation identity is always the reservation key.
+        """
+        if (not isinstance(run_id, str) or not run_id
+                or not isinstance(owner, str) or not owner
+                or type(token) is not int or token < 1):
+            raise ValueError("invalid broker fence binding")
+        def enforce(grant, now):
+            from .distributed import GatewayGrant
+            if not isinstance(grant, GatewayGrant):
+                raise LeaseDenied("invalid grant for fence")
+            self.dispatch_once(run_id, owner, token, grant.envelope.transaction_id)
+        return enforce
+
+    def pending(self, transaction_id: str):
+        """Inspection only: pending effects cannot be retried automatically."""
+        if not isinstance(transaction_id, str) or not transaction_id:
+            raise ValueError("invalid transaction")
+        with self.db.transaction():
+            return self.db.execute(
+                "SELECT run_id,token,state FROM aak_fenced_dispatch "
+                "WHERE transaction_id=%s", (transaction_id,)).fetchone()
+
     def close(self):
         self.db.close()
