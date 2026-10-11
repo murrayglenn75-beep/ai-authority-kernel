@@ -68,6 +68,7 @@ class RuntimeSignedIntegrationTests(DistributedServiceTests):
             self.assertEqual(matching_grant.envelope.transaction_id, expected_tx)
             def grant_provider(request, txid):
                 return matching_grant
+            boundary_failures = []
             bound = ExactGrantBoundary(
                 grant_provider,
                 lambda grant: service.execute(
@@ -75,15 +76,21 @@ class RuntimeSignedIntegrationTests(DistributedServiceTests):
                     effect_limits={"records_written": 10}),
                 allowed_actions=frozenset({"crm.ticket.update"}),
             )
+            def observed_boundary(call, transaction):
+                try:
+                    return bound(call, transaction)
+                except Exception as exc:
+                    boundary_failures.append(type(exc).__name__ + ": " + str(exc))
+                    raise
             journal = RuntimeCheckpointStore(str(Path(directory) / "runtime.db"))
             try:
                 agent = BoundedAgent(
                     Model([ModelReply(calls=tuple(calls)),
                            ModelReply(text="ticket closed")]),
-                    bound, journal,
+                    observed_boundary, journal,
                     allowed_tools=frozenset({"crm.ticket.update"}))
                 result = agent.run("proof-1")
-                self.assertEqual(result.outcome, Outcome.COMPLETE, result)
+                self.assertEqual(result.outcome, Outcome.COMPLETE, (result, boundary_failures))
                 self.assertEqual(len(provider_calls), 1)
                 self.assertEqual(provider_calls[0]["operation_id"],
                                  matching_grant.envelope.transaction_id)
