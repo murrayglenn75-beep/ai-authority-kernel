@@ -118,6 +118,33 @@ class PostgreSQLFencingIntegration(unittest.TestCase):
                 self.assertEqual(len(fake_calls), 1)
                 tx = fixture.grant.envelope.transaction_id
                 self.assertEqual(self.a.pending(tx), ("broker-run", token, "pending"))
+                from aak.provider_reconciliation import VerifiedProviderReconciliation
+                from aak.reliability_contract import RecoveryDecision
+                from aak.canonical import canonical_bytes
+                from aak.crypto import b64encode
+                provider_signer = Ed25519Signer.generate()
+                trusted = VerifiedProviderReconciliation({
+                    provider_signer.key_id:
+                    Ed25519Signer.verifier(provider_signer.public_key_bytes)})
+                proof = {"transaction_id": tx,
+                         "request_hash": fixture.grant.call.request_hash,
+                         "provider_reference": "test-only",
+                         "state": "committed",
+                         "provider_key_id": provider_signer.key_id}
+                signed = {**proof, "signature": b64encode(
+                    provider_signer.sign(canonical_bytes(proof)))}
+                self.assertEqual(self.a.record_verified_outcome(
+                    {**signed, "request_hash":"tampered"}, trusted),
+                    RecoveryDecision.REQUIRE_OPERATOR)
+                self.assertEqual(self.a.record_verified_outcome(signed, trusted),
+                                 RecoveryDecision.RECORD_SUCCESS)
+                outcome_row = self.b.db.execute(
+                    "SELECT decision FROM aak_provider_outcomes WHERE transaction_id=%s",
+                    (tx,)).fetchone()
+                self.b.db.rollback()
+                self.assertEqual(outcome_row, ("record_success",))
+                with self.assertRaises(Exception):
+                    self.a.record_verified_outcome(signed, trusted)
                 with self.assertRaises(DistributedBoundaryError):
                     broker.execute(**kwargs)
                 self.assertEqual(len(fake_calls), 1)
