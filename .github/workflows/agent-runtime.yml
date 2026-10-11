@@ -9,6 +9,20 @@ permissions:
   contents: read
 
 jobs:
+  container-network:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install staging orchestration dependencies
+        run: python -m pip install -r requirements-runtime.lock "psycopg[binary]>=3.2,<4"
+      - name: Build isolated services
+        run: docker build -f tests/Dockerfile.staging -t aak-proof:ci .
+      - name: Execute multi-container broker and worker acceptance
+        run: PYTHONPATH=. python tests/container_network_harness.py orchestrate
   postgres-fencing:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
