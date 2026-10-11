@@ -66,6 +66,11 @@ class RuntimeSignedIntegrationTests(DistributedServiceTests):
                 jwt(self.identity_key, token_payload), "cert-1")
             matching_grant = self.gateway.authorize_mcp(self.request, fresh_context, now=101)
             self.assertEqual(matching_grant.envelope.transaction_id, expected_tx)
+            self.assertEqual(matching_grant.call.action, calls[0].name)
+            self.assertEqual(matching_grant.manifest.action, calls[0].name)
+            self.assertEqual(matching_grant.call.resource, matching_grant.manifest.resource)
+            self.assertEqual(matching_grant.call.audience, matching_grant.manifest.audience)
+            self.assertEqual(matching_grant.call.parameters, calls[0].arguments)
             def grant_provider(request, txid):
                 return matching_grant
             boundary_failures = []
