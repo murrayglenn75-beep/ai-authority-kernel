@@ -52,8 +52,7 @@ class RuntimeSignedIntegrationTests(DistributedServiceTests):
             expected_args = json.dumps(calls[0].arguments, sort_keys=True,
                                        separators=(",", ":"), ensure_ascii=False)
             expected_tx = hashlib.sha256(
-                ("proof-1\\x00" + "1\\x00" + "0\\x00" +
-                 calls[0].name + "\\x00" + expected_args).encode()
+                chr(0).join(("proof-1", "1", "0", calls[0].name, expected_args)).encode()
             ).hexdigest()
             self.gateway.id_factory = iter(("new-envelope", expected_tx, "new-nonce")).__next__
             token_payload = {"iss": "https://identity.internal",
