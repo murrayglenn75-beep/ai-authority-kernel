@@ -201,9 +201,9 @@ class PostgreSQLFencingIntegration(unittest.TestCase):
             "s=PostgresFencingStore(sys.argv[1]);"
             "import time;"
             "time.sleep(max(0,float(sys.argv[2])-time.time()));"
-            "\\ntry:\\n t=s.acquire('process-race',sys.argv[3],30);"
+            "\ntry:\n t=s.acquire('process-race',sys.argv[3],30);"
             " print(json.dumps({'won':t}),flush=True)"
-            "\\nexcept LeaseDenied:\\n print(json.dumps({'denied':True}),flush=True)"
+            "\nexcept LeaseDenied:\n print(json.dumps({'denied':True}),flush=True)"
         )
         import time
         # Two separate interpreters and database sessions start together.
