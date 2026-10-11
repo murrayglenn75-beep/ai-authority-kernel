@@ -98,3 +98,6 @@ therefore cannot guarantee downstream stale-worker exclusion after a network
 partition. Production integration must bind reservation keys to signed
 provider operation IDs, use a shared strongly consistent store, and reconcile
 ambiguous effects.
+
+### Exact provider-operation fencing identity
+The broker integration fixture now reserves `grant.envelope.transaction_id` directly in the fencing journal and asserts the persisted reservation is identical to the operation ID passed to the provider. The journal permits bounded opaque signed transaction IDs because AAK's gateway issues IDs that need not be 64-character hexadecimal hashes. This protects against accidental reservation of an unrelated placeholder ID, but it does not by itself make the local fencing hook multi-host safe or provide atomicity between the local database and an external provider.
