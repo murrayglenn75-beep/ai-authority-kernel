@@ -40,3 +40,6 @@ GitHub Actions runs on an ephemeral runner and a disposable PostgreSQL service; 
 - CI exercises this hook inside the actual VerifyingEffectBroker with signed fixture and checks one fake-provider call and replay denial.
 - Separate process termination after PostgreSQL dispatch reservation retains a pending record and prevents resubmission after reopening a connection.
 - These tests are not independent-host network partition tests and do not provide provider-signed reconciliation, service credentials or exactly-once external effects.
+
+## Database connection-failure injection
+The PostgreSQL CI suite also terminates an independently connected PostgreSQL backend while a dispatch reservation remains uncommitted. It checks that PostgreSQL rolls back the incomplete reservation and that a later authorized reservation can be created. This is a session-disconnect/rollback test, **not** a partitioned external provider or multi-region application test. A durable committed pending record is never automatically replayed.
