@@ -19,6 +19,8 @@ class PostgreSQLFencingIntegration(unittest.TestCase):
         self.b = PostgresFencingStore(self.dsn)
         self.a.initialize()
         with self.a.db.transaction():
+            self.a.db.execute("DELETE FROM aak_provider_outcomes")
+            self.a.db.execute("DELETE FROM aak_fenced_request_bindings")
             self.a.db.execute("DELETE FROM aak_fenced_dispatch")
             self.a.db.execute("DELETE FROM aak_worker_leases")
 
