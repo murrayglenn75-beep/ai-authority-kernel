@@ -34,3 +34,9 @@ Status: experimental draft; not approved for production. Date: 2026-10-11.
 
 ## Limitations of current tests
 GitHub Actions runs on an ephemeral runner and a disposable PostgreSQL service; this is not proof of a distributed, globally exactly-once system. Local signed fixtures, deterministic models and fake external providers are useful but insufficient for production certification.
+
+## Integrated shared-database evidence (2026-10-11)
+- PostgresFencingStore.broker_fence builds a trusted broker hook which reserves the grant's exact signed transaction ID.
+- CI exercises this hook inside the actual VerifyingEffectBroker with signed fixture and checks one fake-provider call and replay denial.
+- Separate process termination after PostgreSQL dispatch reservation retains a pending record and prevents resubmission after reopening a connection.
+- These tests are not independent-host network partition tests and do not provide provider-signed reconciliation, service credentials or exactly-once external effects.
