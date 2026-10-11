@@ -75,7 +75,12 @@ class AuthenticatedServiceDispatch:
             valid = False
         if not valid:
             raise DistributedBoundaryError("service_signature_denied")
-        if not self.ledger.accept(peer, message["nonce"]):
+        try:
+            accepted = self.ledger.accept(peer, message["nonce"], destination=self.destination)
+        except TypeError:
+            # Backward-compatible single-process ledger; multi-host must use PostgreSQL.
+            accepted = self.ledger.accept(peer, message["nonce"])
+        if not accepted:
             raise DistributedBoundaryError("service_replay_denied")
         return peer, message["path"], dict(message["payload"])
 
