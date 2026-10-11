@@ -31,3 +31,6 @@ The postgres-fencing job runs tests/test_postgres_fencing.py against disposable 
 
 ## Launch restrictions
 No production external calls or credentials should be introduced by CI. Do not mistake independent processes on one CI host for independent hosts under network partition. Production gate remains open.
+
+## Signed service transport prototype
+`aak/authenticated_service.py` adds a signed peer/destination/path/body/timestamp/nonce envelope and a durable SQLite nonce replay ledger. CI checks forged peers, tampered destinations/bodies, stale timestamps and replay across restarts. The verified peer identity is passed to strict endpoint handlers only after signature checks. This is *application-level identity proof*; production requires authenticated TLS, strict transport byte limits, durable multi-replica replay state, scoped keys and a deployed-service network test. The demonstration uses no production provider credentials.
