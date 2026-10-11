@@ -142,6 +142,27 @@ class PostgreSQLFencingIntegration(unittest.TestCase):
             self.b.dispatch_once("pending-run", "worker", token, "tx-crash")
         self.assertEqual(self.b.pending("tx-crash")[2], "pending")
 
+    def test_database_disconnect_rolls_back_uncommitted_reservation(self):
+        import psycopg
+        token = self.a.acquire("disconnect-run", "worker", 30)
+        interrupted = psycopg.connect(self.dsn)
+        try:
+            pid = interrupted.info.backend_pid
+            interrupted.execute(
+                "INSERT INTO aak_fenced_dispatch VALUES(%s,%s,%s,'pending')",
+                ("connection-lost", "disconnect-run", token))
+            # Simulate network/session loss while reservation is uncommitted.
+            with self.b.db.transaction():
+                self.assertTrue(self.b.db.execute(
+                    "SELECT pg_terminate_backend(%s)", (pid,)).fetchone()[0])
+        finally:
+            interrupted.close()
+        self.assertIsNone(self.a.pending("connection-lost"))
+        # The trusted broker can reserve a transaction that was never committed;
+        # this does not imply a previously submitted provider request is safe.
+        self.a.dispatch_once("disconnect-run", "worker", token, "connection-lost")
+        self.assertEqual(self.b.pending("connection-lost")[2], "pending")
+
     def test_two_independent_connections_one_lease_winner(self):
         barrier = threading.Barrier(2)
         won, denied = [], []
