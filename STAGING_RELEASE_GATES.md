@@ -47,3 +47,9 @@ The PostgreSQL CI suite also terminates an independently connected PostgreSQL ba
 ## Provider reconciliation evidence verifier
 - Added provider_reconciliation.VerifiedProviderReconciliation which checks the full signed receipt with an operator-configured trusted public key, exact transaction ID and exact request fingerprint. Tampered receipts, unknown keys, non-definitive states and mismatched IDs remain REQUIRE_OPERATOR. The verifier cannot mint authority and never retries effects.
 - The simulated signing key is a test-only provider fixture. **A real provider must actually issue or supply verifiable authenticated evidence** through a provider-specific connector. The API does not currently bind the request fingerprint to PostgreSQL pending journal rows; that linkage is a remaining release blocker before automated state settlement.
+
+## Signed receipt persistence (2026-10-11)
+- PostgreSQL now persists the grant's signed request fingerprint atomically with each broker dispatch reservation (separate FK-bound table).
+- A provider-signed receipt with matching transaction and request hash can be classified using trusted public keys and recorded once in immutable aak_provider_outcomes; forged evidence and unknown states require an operator.
+- The broker provider call remains non-atomic with PostgreSQL. Neither a signed test fixture nor a stored decision establishes production provider API compatibility; external receipt verification, trusted key distribution and authenticated reconciliation lookup must be implemented against a real provider.
+- Existing pending reservations are never retried or discarded automatically. Historical reservations without a request binding remain ineligible for settlement.
