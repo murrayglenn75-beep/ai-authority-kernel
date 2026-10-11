@@ -80,3 +80,5 @@ store to `VerifyingEffectBroker`, nor fences an external API, nor resolves
 provider ambiguous commits. SQLite/WAL on a local disk is not a cluster
 coordination mechanism. Real infrastructure and provider-sandbox proof remain
 deployment gates.
+
+A further regression now starts a separate Python worker process, commits a lease, ends abruptly with `os._exit(0)` (no connection close), and has another process attempt takeover before/after lease expiry. This exercises local OS process termination and SQLite WAL persistence, but does not exercise remote network partitions or an external provider.
