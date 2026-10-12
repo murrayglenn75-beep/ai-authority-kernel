@@ -29,7 +29,10 @@ jobs:
         run: node scanner/cli.js scan target > aak-scan.json
       - name: Produce baseline security gate report
         run: node scanner/cli.js gate target > aak-gate.json
+      - name: Enforce security gate decision
+        run: node target/scripts/enforce-security-gate.cjs aak-gate.json
       - name: Upload evidence artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: aak-ethical-hacker-scan
