@@ -53,3 +53,7 @@ The PostgreSQL CI suite also terminates an independently connected PostgreSQL ba
 - A provider-signed receipt with matching transaction and request hash can be classified using trusted public keys and recorded once in immutable aak_provider_outcomes; forged evidence and unknown states require an operator.
 - The broker provider call remains non-atomic with PostgreSQL. Neither a signed test fixture nor a stored decision establishes production provider API compatibility; external receipt verification, trusted key distribution and authenticated reconciliation lookup must be implemented against a real provider.
 - Existing pending reservations are never retried or discarded automatically. Historical reservations without a request binding remain ineligible for settlement.
+
+## Signed transport to real effect broker (2026-10-12)
+- CI `tests/test_real_broker_tcp.py` executes an actual `VerifyingEffectBroker` behind signed HTTP request verification with real `GatewayGrant`, Ed25519 audit receipt verification, PostgreSQL fencing and broker replay checks. Its stale owner is denied before the synthetic provider; the new owner succeeds once; replay is denied.
+- The new test runs on a single GitHub Actions host, with the broker in-process behind a loopback TCP endpoint. It does not yet replace `tests/container_network_harness.py`'s simplified broker implementation, authenticate mTLS identities across hosts, or call a real idempotent provider. Those remain required acceptance gates.
