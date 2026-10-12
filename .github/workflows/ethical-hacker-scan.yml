@@ -1,0 +1,39 @@
+name: Cross-project Ethical Hacker scan
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  ethical-hacker-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout AAK
+        uses: actions/checkout@v4
+        with:
+          path: target
+      - name: Checkout Ethical Hacker scanner
+        uses: actions/checkout@v4
+        with:
+          repository: murrayglenn75-beep/ethical-hacker
+          ref: improve/independent-detection-benchmark-20261011
+          path: scanner
+      - name: Prepare Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify scanner regression suite
+        working-directory: scanner
+        run: npm test
+      - name: Scan AAK source including Python
+        run: node scanner/cli.js scan target > aak-scan.json
+      - name: Produce baseline security gate report
+        run: node scanner/cli.js gate target > aak-gate.json
+      - name: Upload evidence artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: aak-ethical-hacker-scan
+          path: |
+            aak-scan.json
+            aak-gate.json
+          retention-days: 14
