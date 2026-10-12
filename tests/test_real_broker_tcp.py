@@ -16,7 +16,7 @@ from urllib.error import HTTPError
 
 from aak import (ActionEnvelopeVerifier, ToolManifestVerifier, Ed25519Signer,
     VerifyingEffectBroker, InputPolicy, DurableAuditAnchor, SQLiteBrokerReplayStore,
-    GatewayGrant, ToolCall, AuditReceipt)
+    GatewayGrant, ToolCall, AuditReceipt, EffectBrokerEndpoint)
 from aak.canonical import digest
 from aak.authenticated_service import (AuthenticatedServiceDispatch,
     sign_service_request)
@@ -77,6 +77,7 @@ class SignedRealBrokerTCPTest(unittest.TestCase):
                    "policy_decision_id":fixture.grant.envelope.policy_decision_id,
                    "action_hash":action_hash}
             receipt=audit.append(event)
+            endpoint=EffectBrokerEndpoint(broker,allowed_peers=frozenset({"resource"}),clock=lambda:102)
             class Handler(BaseHTTPRequestHandler):
                 def log_message(self,*args): pass
                 def do_POST(self):
@@ -86,14 +87,9 @@ class SignedRealBrokerTCPTest(unittest.TestCase):
                         if size<=0 or size>32768: raise ValueError("bad body")
                         signed=json.loads(self.rfile.read(size))
                         peer,path,payload=peer_auth.verify(signed,now=102)
-                        if peer!="resource" or path!="/execute" or set(payload)!={"grant","call"}:
-                            raise ValueError("wrong route")
-                        grant=GatewayGrant.from_wire(payload["grant"])
-                        call=ToolCall.from_wire(payload["call"])
-                        broker.execute(origin="https://crm.example",audience="crm-api",
-                                       action_hash=action_hash,call=call,grant=grant,
-                                       now=102,authorization_event=event,
-                                       authorization_receipt=receipt)
+                        result=endpoint.handle(path,payload,peer_identity=peer)
+                        if result["status"]!="succeeded":
+                            raise ValueError("effect not committed")
                         status=200
                     except Exception:
                         status=403
@@ -104,8 +100,12 @@ class SignedRealBrokerTCPTest(unittest.TestCase):
             thread=threading.Thread(target=server.serve_forever,daemon=True)
             thread.start()
             def deliver(nonce):
-                wire={"grant":fixture.grant.to_wire(),"call":fixture.grant.call.to_wire()}
-                msg=sign_service_request(client_key,"resource","broker","/execute",
+                wire={"origin":"https://crm.example","audience":"crm-api",
+                      "action_hash":action_hash,"grant":fixture.grant.to_wire(),
+                      "call":fixture.grant.call.to_wire(),
+                      "authorization_event":event,
+                      "authorization_receipt":receipt.to_wire()}
+                msg=sign_service_request(client_key,"resource","broker","/v1/effects/execute",
                                          wire,102,nonce)
                 req=Request(f"http://127.0.0.1:{server.server_port}/",
                             data=json.dumps(msg).encode(),method="POST")
