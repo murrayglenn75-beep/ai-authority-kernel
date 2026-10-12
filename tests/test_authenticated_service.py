@@ -76,5 +76,32 @@ class AuthenticatedTransportTests(unittest.TestCase):
             a.close()
             b.close()
 
+    def test_service_request_bounds_fail_closed_before_effect(self):
+        from aak.authenticated_service import MAX_SERVICE_CLAIM_BYTES
+        with tempfile.TemporaryDirectory() as d:
+            ledger=ServiceReplayLedger(os.path.join(d,"bounds.db"))
+            signer=Ed25519Signer.generate()
+            dispatch=AuthenticatedServiceDispatch(
+                destination="broker",
+                trusted_peers={"resource":Ed25519Signer.verifier(signer.public_key_bytes)},
+                ledger=ledger)
+            try:
+                with self.assertRaises(ValueError):
+                    sign_service_request(signer,"resource","broker","/v1/test",
+                                         {"data":"x"*MAX_SERVICE_CLAIM_BYTES},100,"big")
+                with self.assertRaises(ValueError):
+                    sign_service_request(signer,"resource","broker","/v1/test",
+                                         {},100,"n"*129)
+                signed=sign_service_request(signer,"resource","broker","/v1/test",
+                                            {"ok":1},100,"bounded")
+                forged={**signed,"payload":{"data":"x"*MAX_SERVICE_CLAIM_BYTES}}
+                with self.assertRaisesRegex(DistributedBoundaryError,"service_request_too_large"):
+                    dispatch.verify(forged,now=100)
+                with self.assertRaisesRegex(DistributedBoundaryError,"service_identity_or_freshness_denied"):
+                    dispatch.verify({**signed,"nonce":"n"*129},now=100)
+                self.assertEqual(dispatch.verify(signed,now=100)[0],"resource")
+            finally:
+                ledger.close()
+
 if __name__=="__main__":
     unittest.main()
