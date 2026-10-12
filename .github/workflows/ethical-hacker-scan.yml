@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: murrayglenn75-beep/ethical-hacker
-          ref: improve/independent-detection-benchmark-20261011
+          ref: 5b758ac4ce0c00feb038d0308a05e67cab47d9b9
           path: scanner
       - name: Prepare Node
         uses: actions/setup-node@v4
