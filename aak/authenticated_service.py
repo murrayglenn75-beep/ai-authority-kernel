@@ -18,7 +18,7 @@ MAX_SERVICE_ID_CHARS = 256
 def _valid_service_fields(peer, destination, path, nonce):
     return (all(isinstance(x, str) and 0 < len(x) <= MAX_SERVICE_ID_CHARS
                 for x in (peer, destination, path))
-            and isinstance(nonce, str) and 16 <= len(nonce) <= MAX_SERVICE_NONCE_CHARS)
+            and isinstance(nonce, str) and 1 <= len(nonce) <= MAX_SERVICE_NONCE_CHARS)
 
 class ServiceReplayLedger:
     def __init__(self, path):
