@@ -11,6 +11,15 @@ from .canonical import canonical_bytes
 from .crypto import b64encode, b64decode
 from .distributed import DistributedBoundaryError
 
+MAX_SERVICE_CLAIM_BYTES = 32 * 1024
+MAX_SERVICE_NONCE_CHARS = 128
+MAX_SERVICE_ID_CHARS = 256
+
+def _valid_service_fields(peer, destination, path, nonce):
+    return (all(isinstance(x, str) and 0 < len(x) <= MAX_SERVICE_ID_CHARS
+                for x in (peer, destination, path))
+            and isinstance(nonce, str) and 16 <= len(nonce) <= MAX_SERVICE_NONCE_CHARS)
+
 class ServiceReplayLedger:
     def __init__(self, path):
         if not path or path == ":memory:":
@@ -34,14 +43,17 @@ class ServiceReplayLedger:
 
 
 def sign_service_request(signer, peer, destination, path, payload, now, nonce):
-    if not all(isinstance(x, str) and x for x in (peer,destination,path,nonce)):
+    if not _valid_service_fields(peer,destination,path,nonce):
         raise ValueError("invalid service identity")
     if type(now) is not int or not isinstance(payload, Mapping):
         raise ValueError("invalid service request")
     claim = {"peer":peer,"destination":destination,"path":path,
              "payload":dict(payload),"timestamp":now,"nonce":nonce,
              "key_id":signer.key_id}
-    return {**claim,"signature":b64encode(signer.sign(canonical_bytes(claim)))}
+    encoded = canonical_bytes(claim)
+    if len(encoded) > MAX_SERVICE_CLAIM_BYTES:
+        raise ValueError("service_request_too_large")
+    return {**claim,"signature":b64encode(signer.sign(encoded))}
 
 
 class AuthenticatedServiceDispatch:
@@ -68,9 +80,17 @@ class AuthenticatedServiceDispatch:
                 or message["destination"] != self.destination
                 or message["key_id"] != verifier.key_id):
             raise DistributedBoundaryError("service_identity_or_freshness_denied")
+        if not _valid_service_fields(peer, message["destination"], message["path"], message["nonce"]):
+            raise DistributedBoundaryError("service_identity_or_freshness_denied")
         claim = {key: message[key] for key in fields if key != "signature"}
         try:
-            valid = verifier.verify(canonical_bytes(claim), b64decode(message["signature"]))
+            encoded = canonical_bytes(claim)
+        except Exception as exc:
+            raise DistributedBoundaryError("service_invalid_canonical_request") from exc
+        if len(encoded) > MAX_SERVICE_CLAIM_BYTES:
+            raise DistributedBoundaryError("service_request_too_large")
+        try:
+            valid = verifier.verify(encoded, b64decode(message["signature"]))
         except Exception:
             valid = False
         if not valid:
