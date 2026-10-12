@@ -103,5 +103,22 @@ class AuthenticatedTransportTests(unittest.TestCase):
             finally:
                 ledger.close()
 
+    def test_replay_database_failure_denies_valid_signed_request(self):
+        with tempfile.TemporaryDirectory() as d:
+            ledger=ServiceReplayLedger(os.path.join(d,"outage.db"))
+            signer=Ed25519Signer.generate()
+            boundary=AuthenticatedServiceDispatch(
+                destination="broker",
+                trusted_peers={"resource":Ed25519Signer.verifier(signer.public_key_bytes)},
+                ledger=ledger)
+            signed=sign_service_request(signer,"resource","broker",
+                "/execute",{"operation":"test"},100,"outage-nonce")
+            ledger.close()
+            endpoint=EchoEndpoint()
+            with self.assertRaisesRegex(DistributedBoundaryError,
+                                        "service_replay_store_unavailable"):
+                boundary.handle(signed,now=100,endpoint=endpoint)
+            self.assertEqual(endpoint.called,0)
+
 if __name__=="__main__":
     unittest.main()
