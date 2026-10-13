@@ -269,6 +269,21 @@ def orchestrate():
         docker("network","disconnect","-f",network,db_name)
         assert worker("worker-B",new,"tx-db-outage")==3, (
             "broker allowed external effect without PostgreSQL fencing")
+        # Rejoin the same database and ensure the previously denied command
+        # may execute once, but never twice. No provider effect was sent while
+        # the broker lacked its authoritative coordination database.
+        docker("network","connect","--alias",db_name,network,db_name)
+        for _ in range(30):
+            probe=docker("exec",broker_name,"python","-c",
+                "import socket;socket.getaddrinfo('"+db_name+"',5432)",
+                check=False)
+            if probe.returncode==0: break
+            time.sleep(0.2)
+        else: raise RuntimeError("database did not rejoin broker network")
+        assert worker("worker-B",new,"tx-db-outage")==0, (
+            "authorized transaction failed after database recovery")
+        assert worker("worker-B",new,"tx-db-outage")==3, (
+            "duplicate effect accepted after database recovery")
         print("container_network_proof=passed stale_worker=denied replay=denied db_partition=denied")
     finally:
         docker("rm","-f",broker_name,check=False)
