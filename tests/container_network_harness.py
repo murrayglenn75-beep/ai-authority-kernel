@@ -165,7 +165,7 @@ def orchestrate():
         docker("run","-d","--name",db_name,"--network",network,
                "-e","POSTGRES_USER=aaktest","-e","POSTGRES_PASSWORD=local_ci_only",
                "-e","POSTGRES_DB=aaktest","postgres:16")
-        dsn="postgresql://aaktest:local_ci_only@"+db_name+":5432/aaktest"
+        dsn="postgresql://aaktest:local_ci_only@"+db_name+":5432/aaktest?connect_timeout=3"
         for _ in range(35):
             probe=docker("exec",db_name,"pg_isready","-U","aaktest","-d","aaktest",check=False)
             if probe.returncode==0: break
@@ -264,7 +264,12 @@ def orchestrate():
         finally:
             docker("rm","-f",isolation_name,check=False)
         assert worker("worker-B",new,"tx-second")==3
-        print("container_network_proof=passed stale_worker=denied replay=denied")
+        # Broker stays on worker network; isolate only the database container.
+        # Unavailable coordination must deny even an authenticated current worker.
+        docker("network","disconnect","-f",network,db_name)
+        assert worker("worker-B",new,"tx-db-outage")==3, (
+            "broker allowed external effect without PostgreSQL fencing")
+        print("container_network_proof=passed stale_worker=denied replay=denied db_partition=denied")
     finally:
         docker("rm","-f",broker_name,check=False)
         docker("rm","-f",db_name,check=False)
