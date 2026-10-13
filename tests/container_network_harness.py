@@ -205,7 +205,8 @@ def orchestrate():
                     "action_hash":action_hash,"call":grant.call.to_wire(),"grant":grant.to_wire(),
                     "authorization_event":event,"authorization_receipt":receipt.to_wire()}
             return operations[tx]
-        def worker(identity,token,tx):
+        def worker(identity,token,tx,cert_identity=None):
+            cert_identity=cert_identity or identity
             signer=keys[identity]
             # Ed25519 raw private bytes are available only to the worker container.
             from cryptography.hazmat.primitives import serialization
@@ -217,8 +218,8 @@ def orchestrate():
                 "-e","AAK_PRIVATE="+b64encode(raw),
                 "-e","AAK_OPERATION="+json.dumps(operation(tx)),
                 "-v",str(certs/"ca.crt")+":/tls/ca.crt:ro",
-                "-v",str(certs/(identity[-1]+".crt"))+":/tls/client.crt:ro",
-                "-v",str(certs/(identity[-1]+".key"))+":/tls/client.key:ro",
+                "-v",str(certs/(cert_identity[-1]+".crt"))+":/tls/client.crt:ro",
+                "-v",str(certs/(cert_identity[-1]+".key"))+":/tls/client.key:ro",
                 image,"worker",identity,str(token),tx,check=False)
             if result.returncode not in (0,3):
                 raise RuntimeError("worker failed: "+result.stderr[-500:])
@@ -242,6 +243,8 @@ def orchestrate():
         new=claim("worker-B",expire=True)
         assert new>old
         assert worker("worker-A",old,"tx-stale")==3
+        # Signed identity B presented with A TLS certificate must be denied.
+        assert worker("worker-B",new,"tx-forged-channel",cert_identity="worker-A")==3
         # Inject a real Docker network disconnection for the obsolete worker.
         # The broker and PostgreSQL remain reachable to other containers.
         isolation_name="aak-isolated-"+suffix
