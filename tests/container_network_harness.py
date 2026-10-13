@@ -138,6 +138,25 @@ def orchestrate():
     anchor=DurableAuditAnchor(Path(temporary.name)/"audit.db",fixture.audit_key,anchor_id=fixture.audit_id)
     a,b=Ed25519Signer.generate(),Ed25519Signer.generate()
     keys={"worker-A":a,"worker-B":b}
+    def openssl(*args):
+        subprocess.run(["openssl", *args], check=True, stdout=subprocess.PIPE,
+                       stderr=subprocess.PIPE, timeout=15)
+    certs=Path(temporary.name)/"tls"
+    certs.mkdir()
+    openssl("req","-x509","-newkey","rsa:2048","-sha256","-nodes",
+            "-subj","/CN=AAK CI Test CA","-days","1",
+            "-keyout",str(certs/"ca.key"),"-out",str(certs/"ca.crt"))
+    for cn,stub in (("broker","server"),("worker-A","A"),("worker-B","B")):
+        openssl("req","-newkey","rsa:2048","-nodes","-subj","/CN="+cn,
+                "-keyout",str(certs/(stub+".key")),
+                "-out",str(certs/(stub+".csr")))
+        ext=certs/(stub+".ext")
+        ext.write_text(("subjectAltName=DNS:broker\nextendedKeyUsage=serverAuth\n"
+                        if cn=="broker" else "extendedKeyUsage=clientAuth\n"))
+        openssl("x509","-req","-in",str(certs/(stub+".csr")),
+                "-CA",str(certs/"ca.crt"),"-CAkey",str(certs/"ca.key"),
+                "-CAcreateserial","-out",str(certs/(stub+".crt")),
+                "-days","1","-sha256","-extfile",str(ext))
     def docker(*args,check=True):
         return subprocess.run(["docker",*args],check=check,text=True,
                               stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=45)
@@ -160,6 +179,9 @@ def orchestrate():
                "-e","AAK_MANIFEST_PUBLIC="+b64encode(fixture.manifest_key.public_key_bytes),
                "-e","AAK_AUDIT_PUBLIC="+b64encode(fixture.audit_key.public_key_bytes),
                "-e","AAK_SCHEMA_HASH="+fixture.manifest.input_schema_hash,
+               "-v",str(certs/"ca.crt")+":/tls/ca.crt:ro",
+               "-v",str(certs/"server.crt")+":/tls/server.crt:ro",
+               "-v",str(certs/"server.key")+":/tls/server.key:ro",
                image,"broker")
         operations={}
         def operation(tx):
@@ -194,6 +216,9 @@ def orchestrate():
                 "-e","AAK_TEST_POSTGRES_DSN="+dsn,
                 "-e","AAK_PRIVATE="+b64encode(raw),
                 "-e","AAK_OPERATION="+json.dumps(operation(tx)),
+                "-v",str(certs/"ca.crt")+":/tls/ca.crt:ro",
+                "-v",str(certs/(identity[-1]+".crt"))+":/tls/client.crt:ro",
+                "-v",str(certs/(identity[-1]+".key"))+":/tls/client.key:ro",
                 image,"worker",identity,str(token),tx,check=False)
             if result.returncode not in (0,3):
                 raise RuntimeError("worker failed: "+result.stderr[-500:])
