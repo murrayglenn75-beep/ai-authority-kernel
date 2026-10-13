@@ -13,7 +13,13 @@ from urllib.error import HTTPError
 from aak.postgres_fencing import PostgresFencingStore
 from aak.postgres_service_replay import PostgresServiceReplayLedger
 from aak.authenticated_service import AuthenticatedServiceDispatch, sign_service_request
-from aak import Ed25519Signer
+from aak import (Ed25519Signer, ActionEnvelopeVerifier, ToolManifestVerifier, VerifyingEffectBroker, InputPolicy, SQLiteBrokerReplayStore, EffectBrokerEndpoint)
+from aak.canonical import digest
+from aak.crypto import b64decode, b64encode
+from test_distributed import DistributedServiceTests, valid_close
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from http.server import HTTPServer
 
 DSN=os.environ.get("AAK_TEST_POSTGRES_DSN", "")
 
@@ -30,30 +36,58 @@ def broker():
     ledger=PostgresServiceReplayLedger(DSN)
     fence.initialize()
     ledger.initialize()
-    from aak.crypto import b64decode
     keys={identity:Ed25519Signer.verifier(b64decode(os.environ["AAK_PUBLIC_"+identity[-1]]))
           for identity in ("worker-A","worker-B")}
     auth=AuthenticatedServiceDispatch(destination="broker",trusted_peers=keys,ledger=ledger)
+    verifier=ActionEnvelopeVerifier(
+        Ed25519Signer.verifier(b64decode(os.environ["AAK_ENVELOPE_PUBLIC"])),
+        ToolManifestVerifier(Ed25519Signer.verifier(b64decode(os.environ["AAK_MANIFEST_PUBLIC"]))),
+        expected_audience="crm-api")
+    audit_key=Ed25519Signer.verifier(b64decode(os.environ["AAK_AUDIT_PUBLIC"]))
+    directory=TemporaryDirectory()
+    replay=SQLiteBrokerReplayStore(Path(directory.name)/"replay.db")
+    calls=[]
     class Endpoint(BaseHTTPRequestHandler):
         def log_message(self,*args): pass
         def do_POST(self):
+            code=403
             try:
                 length=int(self.headers.get("Content-Length","0"))
                 if not 0<length<=32768: raise ValueError("invalid size")
                 msg=json.loads(self.rfile.read(length))
-                peer,path,data=auth.verify(msg,now=100)
-                if path!="/execute" or set(data)!={"tx","token"}: raise ValueError("invalid request")
-                token=data["token"]
+                peer,path,data=auth.verify(msg,now=102)
+                if set(data)!={"operation","lease_token"}: raise ValueError("invalid operation")
+                token=data["lease_token"]
                 if type(token) is not int or token<1: raise ValueError("invalid token")
-                fence.dispatch_once("container-run",peer,token,data["tx"])
-                code=200
+                db=PostgresFencingStore(DSN)
+                try:
+                    core=VerifyingEffectBroker(
+                        verifier=verifier,
+                        provider=lambda **kw: calls.append(kw) or {"provider_reference":"test-only"},
+                        allowed_origins=("https://crm.example",),
+                        audit_anchor_id="aak-test-audit",
+                        audit_verifiers={audit_key.key_id:audit_key},
+                        replay_store=replay,
+                        input_policies={"crm.ticket.update":InputPolicy(
+                            os.environ["AAK_SCHEMA_HASH"],valid_close)},
+                        dispatch_fence=db.broker_fence(run_id="container-run",owner=peer,token=token))
+                    endpoint=EffectBrokerEndpoint(core,allowed_peers=frozenset(keys),clock=lambda:102)
+                    outcome=endpoint.handle(path,data["operation"],peer_identity=peer)
+                    if outcome["status"]=="succeeded": code=200
+                finally:
+                    db.close()
             except Exception:
                 code=403
             self.send_response(code)
             self.send_header("Content-Length","0")
             self.end_headers()
-    server=ThreadingHTTPServer(("0.0.0.0",8080),Endpoint)
-    server.serve_forever()
+    try:
+        HTTPServer(("0.0.0.0",8080),Endpoint).serve_forever()
+    finally:
+        replay.close()
+        directory.cleanup()
+        ledger.close()
+        fence.close()
 
 def worker(identity,token,tx):
     from aak.crypto import b64decode
@@ -61,8 +95,9 @@ def worker(identity,token,tx):
     from aak.crypto import Ed25519Signer
     private=Ed25519PrivateKey.from_private_bytes(b64decode(os.environ["AAK_PRIVATE"]))
     signer=Ed25519Signer(private,private.public_key())
-    signed=sign_service_request(signer,identity,"broker","/execute",
-                                {"tx":tx,"token":token},100,tx)
+    signed=sign_service_request(signer,identity,"broker","/v1/effects/execute",
+                                {"operation":json.loads(os.environ["AAK_OPERATION"]),
+                                 "lease_token":token},102,tx)
     return post("http://broker:8080/",signed)
 
 def orchestrate():
@@ -76,6 +111,11 @@ def orchestrate():
     db_name="aak-db-"+suffix
     broker_name="aak-broker-"+suffix
     image=os.environ.get("AAK_STAGING_IMAGE","aak-proof:ci")
+    fixture=DistributedServiceTests(methodName="test_exact_grant_executes_once_without_exposing_credential")
+    fixture.setUp()
+    temporary=TemporaryDirectory()
+    from aak import DurableAuditAnchor
+    anchor=DurableAuditAnchor(Path(temporary.name)/"audit.db",fixture.audit_key,anchor_id=fixture.audit_id)
     a,b=Ed25519Signer.generate(),Ed25519Signer.generate()
     keys={"worker-A":a,"worker-B":b}
     def docker(*args,check=True):
@@ -96,7 +136,24 @@ def orchestrate():
                "-e","AAK_TEST_POSTGRES_DSN="+dsn,
                "-e","AAK_PUBLIC_A="+b64encode(a.public_key_bytes),
                "-e","AAK_PUBLIC_B="+b64encode(b.public_key_bytes),
+               "-e","AAK_ENVELOPE_PUBLIC="+b64encode(fixture.envelope_key.public_key_bytes),
+               "-e","AAK_MANIFEST_PUBLIC="+b64encode(fixture.manifest_key.public_key_bytes),
+               "-e","AAK_AUDIT_PUBLIC="+b64encode(fixture.audit_key.public_key_bytes),
+               "-e","AAK_SCHEMA_HASH="+fixture.manifest.input_schema_hash,
                image,"broker")
+        def operation(tx):
+            grant=fixture.gateway.authorize_mcp({**fixture.request,"id":tx},fixture.context,now=101)
+            action_hash=digest(grant.envelope.claim())
+            event={"type":"action_authorized","envelope_id":grant.envelope.envelope_id,
+                   "transaction_id":grant.envelope.transaction_id,
+                   "request_hash":grant.call.request_hash,
+                   "agent_identity":grant.envelope.agent_identity,
+                   "policy_decision_id":grant.envelope.policy_decision_id,
+                   "action_hash":action_hash}
+            receipt=anchor.append(event)
+            return {"origin":"https://crm.example","audience":"crm-api",
+                    "action_hash":action_hash,"call":grant.call.to_wire(),"grant":grant.to_wire(),
+                    "authorization_event":event,"authorization_receipt":receipt.to_wire()}
         def worker(identity,token,tx):
             signer=keys[identity]
             # Ed25519 raw private bytes are available only to the worker container.
@@ -107,6 +164,7 @@ def orchestrate():
             result=docker("run","--rm","--network",network,
                 "-e","AAK_TEST_POSTGRES_DSN="+dsn,
                 "-e","AAK_PRIVATE="+b64encode(raw),
+                "-e","AAK_OPERATION="+json.dumps(operation(tx)),
                 image,"worker",identity,str(token),tx,check=False)
             if result.returncode not in (0,3):
                 raise RuntimeError("worker failed: "+result.stderr[-500:])
@@ -154,6 +212,8 @@ def orchestrate():
         docker("rm","-f",broker_name,check=False)
         docker("rm","-f",db_name,check=False)
         docker("network","rm",network,check=False)
+        anchor.close()
+        temporary.cleanup()
 
 def claim(owner,mode):
     fence=PostgresFencingStore(DSN)
