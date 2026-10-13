@@ -142,7 +142,9 @@ def orchestrate():
                "-e","AAK_AUDIT_PUBLIC="+b64encode(fixture.audit_key.public_key_bytes),
                "-e","AAK_SCHEMA_HASH="+fixture.manifest.input_schema_hash,
                image,"broker")
+        operations={}
         def operation(tx):
+            if tx in operations: return operations[tx]
             identity_payload={"iss":"https://identity.internal",
                 "sub":"spiffe://aak/agent/support","aud":"resource-verifier",
                 "iat":100,"nbf":100,"exp":130,"jti":"token-"+tx,
@@ -158,9 +160,10 @@ def orchestrate():
                    "policy_decision_id":grant.envelope.policy_decision_id,
                    "action_hash":action_hash}
             receipt=anchor.append(event)
-            return {"origin":"https://crm.example","audience":"crm-api",
+            operations[tx]={"origin":"https://crm.example","audience":"crm-api",
                     "action_hash":action_hash,"call":grant.call.to_wire(),"grant":grant.to_wire(),
                     "authorization_event":event,"authorization_receipt":receipt.to_wire()}
+            return operations[tx]
         def worker(identity,token,tx):
             signer=keys[identity]
             # Ed25519 raw private bytes are available only to the worker container.
