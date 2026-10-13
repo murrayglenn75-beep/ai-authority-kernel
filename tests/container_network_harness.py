@@ -16,7 +16,8 @@ from aak.authenticated_service import AuthenticatedServiceDispatch, sign_service
 from aak import (Ed25519Signer, ActionEnvelopeVerifier, ToolManifestVerifier, VerifyingEffectBroker, InputPolicy, SQLiteBrokerReplayStore, EffectBrokerEndpoint)
 from aak.canonical import digest
 from aak.crypto import b64decode, b64encode
-from test_distributed import DistributedServiceTests, valid_close
+from test_distributed import DistributedServiceTests, valid_close, jwt
+from aak import AuthenticatedGatewayContext
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from http.server import HTTPServer
@@ -142,7 +143,13 @@ def orchestrate():
                "-e","AAK_SCHEMA_HASH="+fixture.manifest.input_schema_hash,
                image,"broker")
         def operation(tx):
-            grant=fixture.gateway.authorize_mcp({**fixture.request,"id":tx},fixture.context,now=101)
+            identity_payload={"iss":"https://identity.internal",
+                "sub":"spiffe://aak/agent/support","aud":"resource-verifier",
+                "iat":100,"nbf":100,"exp":130,"jti":"token-"+tx,
+                "cnf":{"x5t#S256":"cert-1"}}
+            context=AuthenticatedGatewayContext("user:glenn","close resolved ticket",
+                jwt(fixture.identity_key,identity_payload),"cert-1")
+            grant=fixture.gateway.authorize_mcp({**fixture.request,"id":tx},context,now=101)
             action_hash=digest(grant.envelope.claim())
             event={"type":"action_authorized","envelope_id":grant.envelope.envelope_id,
                    "transaction_id":grant.envelope.transaction_id,
