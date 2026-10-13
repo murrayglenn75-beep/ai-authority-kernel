@@ -7,6 +7,7 @@ Never expose this HTTP-only harness to external networks.
 import json
 import os
 import sys
+import ssl
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
@@ -57,6 +58,9 @@ def broker():
                 if not 0<length<=32768: raise ValueError("invalid size")
                 msg=json.loads(self.rfile.read(length))
                 peer,path,data=auth.verify(msg,now=102)
+                subject=self.connection.getpeercert().get("subject",())
+                names=[v for group in subject for k,v in group if k=="commonName"]
+                if names!=[peer]: raise ValueError("certificate identity mismatch")
                 if set(data)!={"operation","lease_token"}: raise ValueError("invalid operation")
                 token=data["lease_token"]
                 if type(token) is not int or token<1: raise ValueError("invalid token")
@@ -83,7 +87,13 @@ def broker():
             self.send_header("Content-Length","0")
             self.end_headers()
     try:
-        HTTPServer(("0.0.0.0",8080),Endpoint).serve_forever()
+        server=HTTPServer(("0.0.0.0",8080),Endpoint)
+        tls=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        tls.load_cert_chain("/tls/server.crt","/tls/server.key")
+        tls.load_verify_locations(cafile="/tls/ca.crt")
+        tls.verify_mode=ssl.CERT_REQUIRED
+        server.socket=tls.wrap_socket(server.socket,server_side=True)
+        server.serve_forever()
     finally:
         replay.close()
         directory.cleanup()
@@ -99,7 +109,16 @@ def worker(identity,token,tx):
     signed=sign_service_request(signer,identity,"broker","/v1/effects/execute",
                                 {"operation":json.loads(os.environ["AAK_OPERATION"]),
                                  "lease_token":token},102,tx)
-    return post("http://broker:8080/",signed)
+    context=ssl.create_default_context(cafile="/tls/ca.crt")
+    context.load_cert_chain("/tls/client.crt","/tls/client.key")
+    data=json.dumps(signed).encode()
+    request=Request("https://broker:8080/",data=data,
+                    headers={"Content-Type":"application/json"},method="POST")
+    try:
+        with urlopen(request,timeout=5,context=context) as response:
+            return response.status
+    except HTTPError as exc:
+        return exc.code
 
 def orchestrate():
     import subprocess
