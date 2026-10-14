@@ -1,0 +1,20 @@
+name: Recovery model verification
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  recovery-model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check Python syntax
+        run: python -m py_compile tests/recovery_harness.py
+      - name: Execute multi-process recovery model
+        run: python -W error::ResourceWarning tests/recovery_harness.py
