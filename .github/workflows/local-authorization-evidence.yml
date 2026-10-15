@@ -16,7 +16,7 @@ jobs:
       - run: python -m pip install -r requirements-runtime.lock
       - run: python -m pip install --no-deps -e .
       - run: PYTHONPATH=. python -m unittest discover -s tests -p test_authorization_evidence.py -v
-      - run: AAK_EVIDENCE_ATTEMPTS=120 PYTHONPATH=. python tooling/authorization_evidence.py > authorization-evidence.json
+      - run: AAK_EVIDENCE_ATTEMPTS=120 PYTHONPATH=. python tests/authorization_evidence.py > authorization-evidence.json
       - uses: actions/upload-artifact@v4
         with:
           name: aak-local-denial-evidence
