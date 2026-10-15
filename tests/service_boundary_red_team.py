@@ -21,6 +21,15 @@ def main():
     fixture.setUp()
     provider_calls = []
     with tempfile.TemporaryDirectory() as directory:
+        replay_store = SQLiteBrokerReplayStore(Path(directory) / "broker.db")
+        try:
+            _run_cases(directory, fixture, provider_calls, replay_store, attempts)
+        finally:
+            replay_store.close()
+
+
+def _run_cases(directory, fixture, provider_calls, replay_store, attempts):
+    if True:
         endpoint = EffectBrokerEndpoint(
             VerifyingEffectBroker(
                 verifier=ActionEnvelopeVerifier(
@@ -34,7 +43,7 @@ def main():
                 audit_verifiers={
                     fixture.audit_key.key_id: Ed25519Signer.verifier(fixture.audit_key.public_key_bytes),
                 },
-                replay_store=SQLiteBrokerReplayStore(Path(directory) / "broker.db"),
+                replay_store=replay_store,
                 input_policies={
                     "crm.ticket.update": InputPolicy(fixture.manifest.input_schema_hash, valid_close),
                 },
