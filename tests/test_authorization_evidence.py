@@ -1,6 +1,6 @@
 import unittest
 
-from tooling.authorization_evidence import run
+from authorization_evidence import run
 
 
 class EvidenceHarnessTests(unittest.TestCase):
