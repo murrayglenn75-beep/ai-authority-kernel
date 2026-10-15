@@ -1,0 +1,24 @@
+name: Local authorization evidence
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  local-evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-runtime.lock
+      - run: python -m pip install --no-deps -e .
+      - run: PYTHONPATH=. python -m unittest discover -s tests -p test_authorization_evidence.py -v
+      - run: AAK_EVIDENCE_ATTEMPTS=120 PYTHONPATH=. python tests/authorization_evidence.py > authorization-evidence.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aak-local-denial-evidence
+          path: authorization-evidence.json
+          retention-days: 14
