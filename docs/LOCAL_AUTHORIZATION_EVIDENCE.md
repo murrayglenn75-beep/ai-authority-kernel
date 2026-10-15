@@ -16,5 +16,6 @@ This gate reruns two existing local campaigns through the actual AAK resource-si
 
 No live provider execution, new infrastructure or service deployment is created by this PR.
 
-## Windows known limitation
-The existing local subprocess campaigns keep a SQLite broker handle active during temporary-directory cleanup on Windows (WinError 32). Their integration test is therefore explicitly **skipped on Windows**, and executed/enforced on Linux CI. This is not Windows campaign validation. Fix the underlying SQLite connection lifecycle and re-enable Windows evidence checks before claiming Windows parity.
+
+## Windows lifecycle correction
+Both local campaigns explicitly close their SQLite broker replay store before deleting their temporary directories; the Windows skip is removed. Successful CI is required before marking Windows campaign compatibility verified. These remain local tests, not independently hosted cross-service evidence.
