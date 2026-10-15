@@ -87,6 +87,7 @@ def main():
                     unexpected[f"{type(exc).__name__}:{exc}"] += 1
         finally:
             replay_store.close()
+            audit.close()
     unauthorized += len(provider_calls)
     result = {
         "attempts": attempts, "provider_calls": len(provider_calls),
