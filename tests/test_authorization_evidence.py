@@ -1,9 +1,11 @@
+import os
 import unittest
 
 from authorization_evidence import run
 
 
 class EvidenceHarnessTests(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "campaign SQLite cleanup is not yet Windows-safe; Linux CI enforces")
     def test_real_local_boundary_campaigns_fail_closed(self):
         report = run(12)
         self.assertFalse(report["independent_remote_deployment_verified"])
