@@ -10,6 +10,7 @@ class ReviewTierTests(unittest.TestCase):
     def test_auth(self): self.assertEqual(tier(["app/auth/login.ts"]),"CRITICAL")
     def test_no_paths(self): self.assertEqual(tier([]),"BLOCKED")
     def test_invalid_path(self): self.assertEqual(tier(["../secret"]),"BLOCKED")
+    def test_absolute_path(self): self.assertEqual(tier(["/etc/passwd"]),"BLOCKED")
     def test_mixed(self): self.assertEqual(tier(["README.md","lib/security/policy.py"]),"CRITICAL")
 
 if __name__ == "__main__": unittest.main()
