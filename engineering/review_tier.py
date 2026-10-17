@@ -16,7 +16,10 @@ def tier(paths):
     for raw in paths:
         if not isinstance(raw, str) or not raw.strip():
             return "BLOCKED"
-        normalized = raw.replace("\\", "/").lower().strip("/")
+        normalized = raw.replace("\\", "/").lower()
+        if normalized.startswith("/"):
+            return "BLOCKED"
+        normalized = normalized.strip("/")
         parts = tuple(PurePosixPath(normalized).parts)
         if ".." in parts or normalized.startswith("/"):
             return "BLOCKED"
