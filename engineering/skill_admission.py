@@ -5,6 +5,20 @@ SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 REV = re.compile(r"[0-9a-f]{40}\Z")
 PERMISSIONS = frozenset(("read_workspace","write_workspace","network","execute_tests"))
 
+def approval_fingerprint(manifest):
+    """Stable digest of the exact skill identity, payload pin and permissions."""
+    import json
+    if not isinstance(manifest, dict):
+        return None
+    fields = ("name", "source", "revision", "sha256", "permissions")
+    if any(key not in manifest for key in fields):
+        return None
+    try:
+        payload = {key: manifest[key] for key in fields}
+        return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")).hexdigest()
+    except (TypeError, ValueError):
+        return None
+
 def inspect_skill(manifest, content, trusted_approvals=frozenset()):
     if not isinstance(manifest, dict):
         return ["invalid manifest"]
@@ -27,6 +41,8 @@ def inspect_skill(manifest, content, trusted_approvals=frozenset()):
     if not isinstance(perms,list) or any(not isinstance(p,str) or p not in PERMISSIONS for p in perms) or (all(isinstance(p,str) for p in perms) and len(perms)!=len(set(perms))):
         errors.append("invalid permissions")
     approval=manifest.get("approval_id")
-    if not isinstance(approval,str) or approval not in trusted_approvals:
-        errors.append("approval not independently verified")
+    digest = approval_fingerprint(manifest)
+    if (not isinstance(approval, str) or not isinstance(trusted_approvals, dict)
+            or not isinstance(digest, str) or trusted_approvals.get(approval) != digest):
+        errors.append("approval not independently verified for this exact skill")
     return errors
