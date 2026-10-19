@@ -41,8 +41,12 @@ class DurableHarnessStoreTests(unittest.TestCase):
 
     def test_corrupt_state_fails_closed(self):
         import sqlite3
-        with sqlite3.connect(self.path) as db:
+        db = sqlite3.connect(self.path)
+        try:
             db.execute("UPDATE harness_tasks SET status = 'unknown' WHERE task_id = 't1'")
+            db.commit()
+        finally:
+            db.close()
         with self.assertRaises(ValueError):
             self.store.load("t1", "alice")
 
