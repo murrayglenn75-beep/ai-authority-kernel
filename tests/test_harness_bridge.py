@@ -1,7 +1,10 @@
+import tempfile
 import unittest
+from pathlib import Path
 from aak.action_gateway import ToolCall
 from aak.harness_lifecycle import HarnessTask, Status, advance
-from aak.harness_bridge import prepare_tool_call
+from aak.harness_bridge import prepare_tool_call, prepare_from_store
+from aak.harness_store import DurableHarnessStore
 
 
 class HarnessBridgeTests(unittest.TestCase):
@@ -52,6 +55,45 @@ class HarnessBridgeTests(unittest.TestCase):
                        resource='project', audience='local', parameters={})
         with self.assertRaises(ValueError):
             self.prepare(call=bad)
+
+
+    def test_persisted_state_preflight(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = DurableHarnessStore(Path(tmp) / 'tasks.sqlite')
+            store.create(HarnessTask('t1', 'apex', 'alice'))
+            store.transition('t1', principal_id='alice', expected_revision=0,
+                             next_status=Status.RUNNING)
+            out = prepare_from_store(store=store, task_id='t1', principal_id='alice',
+                                     expected_revision=1, call=self.call)
+            self.assertEqual(out.request_hash, self.call.request_hash)
+
+    def test_persisted_stale_revision_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = DurableHarnessStore(Path(tmp) / 'tasks.sqlite')
+            store.create(HarnessTask('t1', 'apex', 'alice'))
+            store.transition('t1', principal_id='alice', expected_revision=0,
+                             next_status=Status.RUNNING)
+            with self.assertRaises(ValueError):
+                prepare_from_store(store=store, task_id='t1', principal_id='alice',
+                                   expected_revision=0, call=self.call)
+
+    def test_persisted_cancelled_state_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = DurableHarnessStore(Path(tmp) / 'tasks.sqlite')
+            store.create(HarnessTask('t1', 'apex', 'alice'))
+            store.transition('t1', principal_id='alice', expected_revision=0,
+                             next_status=Status.CANCELLED)
+            with self.assertRaises(PermissionError):
+                prepare_from_store(store=store, task_id='t1', principal_id='alice',
+                                   expected_revision=1, call=self.call)
+
+    def test_persisted_cross_principal_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = DurableHarnessStore(Path(tmp) / 'tasks.sqlite')
+            store.create(HarnessTask('t1', 'apex', 'alice'))
+            with self.assertRaises(PermissionError):
+                prepare_from_store(store=store, task_id='t1', principal_id='bob',
+                                   expected_revision=0, call=self.call)
 
 
 if __name__ == '__main__':
