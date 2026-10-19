@@ -40,3 +40,24 @@ def prepare_tool_call(*, task: HarnessTask, principal_id: str,
     request_hash = call.request_hash
     return PreparedHarnessCall(task.task_id, task.revision,
                                task.principal_id, request_hash, call)
+
+
+def prepare_from_store(*, store, task_id: str, principal_id: str,
+                       expected_revision: int, call: ToolCall) -> PreparedHarnessCall:
+    """Re-read durable task state before preparing a non-executable proposal.
+
+    This narrows stale-snapshot mistakes but is NOT a transactional authorization
+    gate. The independent AAK issuer/resource verifier must revalidate its own
+    authority and exact action at the effect boundary. No external effects here.
+    """
+    from .harness_store import DurableHarnessStore
+
+    if not isinstance(store, DurableHarnessStore):
+        raise ValueError("trusted durable store required")
+    if not isinstance(task_id, str) or not task_id:
+        raise ValueError("invalid task_id")
+    if type(expected_revision) is not int:
+        raise ValueError("invalid revision")
+    current = store.load(task_id, principal_id)
+    return prepare_tool_call(task=current, principal_id=principal_id,
+                             expected_revision=expected_revision, call=call)
