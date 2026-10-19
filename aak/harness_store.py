@@ -1,5 +1,6 @@
 """Durable fail-closed SQLite lifecycle storage. Never authorizes tool execution."""
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 from .harness_lifecycle import HarnessTask, Status, advance
 
@@ -15,10 +16,14 @@ class DurableHarnessStore:
                 revision INTEGER NOT NULL, steps INTEGER NOT NULL,
                 checkpoint TEXT)""")
 
+    @contextmanager
     def _connect(self):
         db = sqlite3.connect(self.path, timeout=10, isolation_level=None)
-        db.execute("PRAGMA busy_timeout=10000")
-        return db
+        try:
+            db.execute("PRAGMA busy_timeout=10000")
+            yield db
+        finally:
+            db.close()
 
     @staticmethod
     def _task(row):
