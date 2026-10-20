@@ -9,6 +9,7 @@ from contextlib import closing
 from .canonical import canonical_bytes
 from .crypto import Ed25519Signer, b64decode
 from .harness_repair_loop import Phase, RepairState
+from .harness_eval_gate import Evaluation, compare
 
 
 @dataclass(frozen=True)
@@ -78,3 +79,21 @@ class VerifiedReceiptLedger:
                 raise PermissionError("receipt already used or store unavailable") from None
         return RepairState(Phase.VERIFY, state.attempts + 1,
                            state.max_attempts, receipt.evidence_id)
+
+    def verify_and_decide(self, *, state: RepairState,
+                          receipt: VerificationReceipt,
+                          verifier: Ed25519Signer, task_id: str,
+                          principal_id: str, now: int,
+                          baseline: Evaluation, candidate: Evaluation):
+        """Validate and consume trusted receipt before evaluating candidate.
+
+        Fail closed on signature, scope, replay, or store errors. This is only
+        an offline evaluation decision; it does not authorize any tool effects.
+        """
+        verified = self.accept(state=state, receipt=receipt, verifier=verifier,
+                               task_id=task_id, principal_id=principal_id,
+                               now=now)
+        gate = compare(baseline, candidate)
+        phase = Phase.ACCEPT if gate.accepted else Phase.REJECT
+        return RepairState(phase, verified.attempts, verified.max_attempts,
+                           verified.evidence_id), gate
