@@ -50,12 +50,9 @@ def record_external_verification(state: RepairState, *, approved: bool, evidence
 
 def decide(state: RepairState, *, baseline: Evaluation,
            candidate: Evaluation) -> tuple[RepairState, GateDecision]:
-    if state.phase is not Phase.VERIFY or not state.evidence_id:
-        raise ValueError("verified evidence required")
-    outcome = compare(baseline, candidate)
-    if outcome.accepted:
-        return RepairState(Phase.ACCEPT, state.attempts, state.max_attempts, state.evidence_id), outcome
-    return RepairState(Phase.REJECT, state.attempts, state.max_attempts, state.evidence_id), outcome
+    """Legacy entrypoint intentionally closed: a VERIFY state is forgeable."""
+    raise PermissionError("use VerifiedReceiptLedger.verify_and_decide")
+
 
 
 def retry(state: RepairState) -> RepairState:
