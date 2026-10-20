@@ -4,6 +4,7 @@ Only independently measured results belong here. This component never
 runs tools, modifies policies, or deploys a candidate.
 """
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Mapping
 
 
@@ -24,6 +25,8 @@ class Evaluation:
             self.security_failures, self.latency_ms, self.tokens
         )):
             raise ValueError("invalid measurement")
+        # Snapshot the evidence to prevent post-validation mutation or aliasing.
+        object.__setattr__(self, "cases", MappingProxyType(dict(self.cases)))
 
 
 @dataclass(frozen=True)
