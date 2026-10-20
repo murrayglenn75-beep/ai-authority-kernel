@@ -44,16 +44,8 @@ def request_approval(state: RepairState) -> RepairState:
     return RepairState(Phase.AWAIT_APPROVAL, state.attempts, state.max_attempts)
 
 
-def record_external_verification(state: RepairState, *, approved: bool,
-                                 evidence_id: str) -> RepairState:
-    """Record independent approval and verification result, never execute it."""
-    if state.phase is not Phase.AWAIT_APPROVAL:
-        raise ValueError("not awaiting approval")
-    if type(approved) is not bool or not approved:
-        raise PermissionError("independent approval required")
-    if not isinstance(evidence_id, str) or not evidence_id.strip() or len(evidence_id) > 128:
-        raise ValueError("verified evidence identifier required")
-    return RepairState(Phase.VERIFY, state.attempts + 1, state.max_attempts, evidence_id)
+def record_external_verification(state: RepairState, *, approved: bool, evidence_id: str) -> RepairState:
+    raise PermissionError('signed verifier receipt required; caller approval flags are not trusted')
 
 
 def decide(state: RepairState, *, baseline: Evaluation,
