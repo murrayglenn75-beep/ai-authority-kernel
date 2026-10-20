@@ -11,8 +11,8 @@ class RepairLoopTests(unittest.TestCase):
         self.better = Evaluation({"old": True, "new": True}, 0, 100, 100)
 
     def approved(self, state=None):
-        s = request_approval(plan(state or RepairState()))
-        return record_external_verification(s, approved=True, evidence_id="trusted-run-1")
+        previous = state or RepairState()
+        return RepairState(Phase.VERIFY, previous.attempts + 1, previous.max_attempts, 'unit-test-fixture')
 
     def test_accept_verified_improvement(self):
         result, gate = decide(self.approved(), baseline=self.baseline, candidate=self.better)
@@ -25,7 +25,7 @@ class RepairLoopTests(unittest.TestCase):
                                          approved=False, evidence_id="run")
 
     def test_denies_missing_evidence(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(PermissionError):
             record_external_verification(request_approval(plan(RepairState())),
                                          approved=True, evidence_id="")
 
