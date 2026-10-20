@@ -14,10 +14,9 @@ class RepairLoopTests(unittest.TestCase):
         previous = state or RepairState()
         return RepairState(Phase.VERIFY, previous.attempts + 1, previous.max_attempts, 'unit-test-fixture')
 
-    def test_accept_verified_improvement(self):
-        result, gate = decide(self.approved(), baseline=self.baseline, candidate=self.better)
-        self.assertTrue(gate.accepted)
-        self.assertEqual(result.phase, Phase.ACCEPT)
+    def test_legacy_verified_state_is_not_authority(self):
+        with self.assertRaises(PermissionError):
+            decide(self.approved(), baseline=self.baseline, candidate=self.better)
 
     def test_denies_unapproved(self):
         with self.assertRaises(PermissionError):
@@ -37,22 +36,22 @@ class RepairLoopTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             decide(RepairState(), baseline=self.baseline, candidate=self.better)
 
-    def test_regression_rejected(self):
-        s, gate = decide(self.approved(), baseline=self.baseline,
-                         candidate=Evaluation({"old": False, "new": True}, 0, 100, 100))
-        self.assertFalse(gate.accepted)
-        self.assertEqual(s.phase, Phase.REJECT)
+    def test_forged_state_denied(self):
+        with self.assertRaises(PermissionError):
+            decide(RepairState(Phase.VERIFY, 1, 3, "forged"),
+                   baseline=self.baseline, candidate=self.better)
 
-    def test_bounded_retry(self):
-        first, _ = decide(self.approved(RepairState(max_attempts=1)),
-                          baseline=self.baseline, candidate=self.baseline)
+    def test_retry_requires_reject_state(self):
         with self.assertRaises(ValueError):
-            retry(first)
+            retry(self.approved())
 
     def test_retry_after_rejection(self):
-        first, _ = decide(self.approved(), baseline=self.baseline, candidate=self.baseline)
-        second = retry(first)
+        second = retry(RepairState(Phase.REJECT, 1, 3, "fixture"))
         self.assertEqual((second.phase, second.attempts), (Phase.INSPECT, 1))
+
+    def test_bounded_retry(self):
+        with self.assertRaises(ValueError):
+            retry(RepairState(Phase.REJECT, 1, 1, "fixture"))
 
     def test_no_execution_methods(self):
         self.assertFalse(hasattr(RepairState, "execute"))
