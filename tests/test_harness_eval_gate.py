@@ -46,5 +46,23 @@ class HarnessEvalGateTests(unittest.TestCase):
             compare(self.base, self.base, max_latency_growth_percent=-1)
 
 
+    def test_evaluation_snapshots_input_cases(self):
+        source = {"known": True, "new": False}
+        evidence = Evaluation(source, 0, 100, 100)
+        source["known"] = False
+        self.assertTrue(evidence.cases["known"])
+
+    def test_evaluation_cases_are_read_only(self):
+        evidence = Evaluation({"known": True, "new": False}, 0, 100, 100)
+        with self.assertRaises(TypeError):
+            evidence.cases["known"] = False
+
+    def test_input_mutation_cannot_change_gate_result(self):
+        source = {"known": True, "new": True}
+        candidate = Evaluation(source, 0, 100, 100)
+        source["known"] = False
+        self.assertTrue(compare(self.base, candidate).accepted)
+
+
 if __name__ == "__main__":
     unittest.main()
