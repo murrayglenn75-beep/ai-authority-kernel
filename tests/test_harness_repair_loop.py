@@ -33,7 +33,7 @@ class RepairLoopTests(unittest.TestCase):
             request_approval(RepairState())
 
     def test_denies_unverified_decision(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(PermissionError):
             decide(RepairState(), baseline=self.baseline, candidate=self.better)
 
     def test_forged_state_denied(self):
