@@ -1,0 +1,72 @@
+# Cognitive and Behavioural Validation Gate (CBVG) v0.1
+
+This experimental gate receives structured evaluation results for the **integrated** agent, not just the authority kernel. It does **not** execute tools, update model weights, grant permissions or deploy software.
+
+## Required suites
+
+- `blind_interview`: blinded human judges, with pre-registered prompts and human comparison responses; report raw judge decisions and confidence intervals, not just a pass/fail score.
+- `novel_reasoning`: held-out engineering tasks, evidence-based scoring and contamination checks.
+- `memory_transfer`: correction, delayed retention, novel transfer and deliberate forgetting.
+- `adversarial_authority`: injection, privilege escalation and untrusted feedback attempts; **zero** permitted violations.
+- `independent_regression`: baseline versus candidate on protected samples with paired comparisons.
+
+## Trust boundary
+
+The first implementation uses HMAC as a **local fixture / adapter**. A real independent evaluator must manage its secret outside agent control, supply immutable task and scorer digests, and persist used nonces in durable shared storage. The in-memory replay set here is insufficient across restarts. Evidence signatures attest receipts; they do not prove that human judges were blinded or that results are correct.
+
+A successful `admit` result means only **receipt structurally admitted**. It is not authorization to promote a model, write memory or execute an action. Such operations must still pass existing AAK exact-action grants, independent resource verification and durable audit.
+
+## Release blockers
+
+1. Replace test HMAC with independent verifier identity and durable replay / evidence store.
+2. Authenticate suite IDs, scorer hashes, judge allocation and hidden data provenance.
+3. Implement held-out task harness with human blinded judgement, paired baseline comparison, uncertainty intervals and minimum effect sizes.
+4. Add long-horizon memory correction and delayed tests, adversarial red-team runs and contamination audits.
+5. Bind CBVG decisions to a specific candidate artifact and AAK promotion grant.
+6. Run tests in repository CI, then reproduce independently on a Windows CPU-first machine.
+
+## Run unit tests
+
+```bash
+python -m unittest discover -s tests -p 'test_cbvg.py' -v
+```
+
+No claim of human indistinguishability, general intelligence, or production safety follows from passing unit tests.
+
+
+## v0.2: Paired outcome analysis
+
+`cbvg_paired.py` adds an exploratory, exact one-sided paired-discordance test.
+It compares baseline and candidate on the same identified tasks, rejects duplicate
+task IDs, malformed outcomes, insufficient sample sizes, small improvement, and
+improvements unsupported by the exact binomial discordance test.
+
+`improvement` is an **absolute pass-rate difference** (not relative percentage gain);
+`min_relative_gain` is retained as an API name for compatibility but is
+currently interpreted as an absolute percentage-point floor. This should be
+renamed before stable release.
+
+This evaluator is **not wired to the receipt gate**, is **not an independent
+task runner**, and does **not** authenticate dataset origin, independent human
+judging or hidden scoring. A statistically supported result never authorizes
+promotion. Repeated experimentation requires pre-registered tests and
+appropriate multiplicity controls.
+
+Run: `python -m unittest discover -s tests -p 'test_cbvg*.py' -v`
+
+
+## v0.3 hardening summary (experimental)
+
+- All suites have a configurable pass-rate floor and bounded sample counts. A pass-rate floor is not a substitute for suite-specific scientific validity.
+- Optional SHA-256 digest fields bind a signed receipt to candidate, baseline, scorer, and dataset **identifiers**; digest claims still require an external trusted evaluator to confirm the bytes.
+- `SQLiteNonceStore` provides local durable, atomic nonce consumption across process restarts. It is **not** a distributed replay store and has no off-host attestation.
+- Paired computations are bounded to 100,000 observations and avoid constructing factorial-scale integers.
+- Dedicated CI checks `test_cbvg*.py` on pull requests.
+
+### Non-negotiable remaining blockers
+
+- Do not deploy with the bundled HMAC fixture as independent verifier identity or as a production signing service.
+- Require `require_digests=True`, a durable store, independent key management, and independent dataset/scorer attestation in a future production profile.
+- The paired statistical assessment is not cryptographically bound to the signed CBVG receipt, and repeated testing can bias its results.
+- Human blind judging, APEX trace adapters, causal diagnosis, test contamination controls, longitudinal memory evaluation, promotion rollback, and operational monitoring remain unimplemented.
+- Do not interpret `admit=True` as an action grant, safe-to-merge signal, production readiness certification, or successful Turing test.
