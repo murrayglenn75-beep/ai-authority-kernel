@@ -1,6 +1,6 @@
 """Paired held-out outcome evaluator. Never confers execution authority."""
 from dataclasses import dataclass
-from math import comb
+from math import comb, exp, log, lgamma, isfinite
 
 @dataclass(frozen=True)
 class PairedResult:
@@ -26,7 +26,7 @@ def assess_paired(results: tuple[PairedResult, ...], *, min_samples: int = 30,
     Independent test provenance, preregistration, multiple-comparison control,
     artifact binding and AAK grants must be enforced outside this function.
     """
-    if min_samples < 1 or not 0 < alpha < 1 or not 0 < min_relative_gain <= 1:
+    if min_samples < 1 or not 0 < alpha < 1 or not 0 < min_relative_gain <= 1 or len(results) > 100000:
         raise ValueError("invalid assessment configuration")
     if any(type(r.baseline_passed) is not bool or type(r.candidate_passed) is not bool
            or not isinstance(r.task_id, str) or not r.task_id.strip() for r in results):
@@ -44,8 +44,17 @@ def assess_paired(results: tuple[PairedResult, ...], *, min_samples: int = 30,
     ties = n - wins - losses
     improvement = (candidate - baseline) / n
     discordant = wins + losses
-    p = (sum(comb(discordant, k) for k in range(wins, discordant + 1)) / (2 ** discordant)
-         if discordant else 1.0)
+    # Exact upper binomial tail via recurrence starting at k=wins, without enormous integers.
+    if discordant:
+        log_first = lgamma(discordant+1)-lgamma(wins+1)-lgamma(discordant-wins+1)-discordant*log(2)
+        term = exp(log_first)
+        p = term
+        for k in range(wins, discordant):
+            term *= (discordant-k)/(k+1)
+            p += term
+        p = min(1.0, max(0.0, p))
+    else:
+        p = 1.0
     if improvement < min_relative_gain:
         reason = "insufficient_gain"
     elif p > alpha:
