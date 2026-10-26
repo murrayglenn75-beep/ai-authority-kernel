@@ -32,3 +32,24 @@ python -m unittest discover -s tests -p 'test_cbvg.py' -v
 ```
 
 No claim of human indistinguishability, general intelligence, or production safety follows from passing unit tests.
+
+
+## v0.2: Paired outcome analysis
+
+`cbvg_paired.py` adds an exploratory, exact one-sided paired-discordance test.
+It compares baseline and candidate on the same identified tasks, rejects duplicate
+task IDs, malformed outcomes, insufficient sample sizes, small improvement, and
+improvements unsupported by the exact binomial discordance test.
+
+`improvement` is an **absolute pass-rate difference** (not relative percentage gain);
+`min_relative_gain` is retained as an API name for compatibility but is
+currently interpreted as an absolute percentage-point floor. This should be
+renamed before stable release.
+
+This evaluator is **not wired to the receipt gate**, is **not an independent
+task runner**, and does **not** authenticate dataset origin, independent human
+judging or hidden scoring. A statistically supported result never authorizes
+promotion. Repeated experimentation requires pre-registered tests and
+appropriate multiplicity controls.
+
+Run: `python -m unittest discover -s tests -p 'test_cbvg*.py' -v`
