@@ -53,3 +53,20 @@ promotion. Repeated experimentation requires pre-registered tests and
 appropriate multiplicity controls.
 
 Run: `python -m unittest discover -s tests -p 'test_cbvg*.py' -v`
+
+
+## v0.3 hardening summary (experimental)
+
+- All suites have a configurable pass-rate floor and bounded sample counts. A pass-rate floor is not a substitute for suite-specific scientific validity.
+- Optional SHA-256 digest fields bind a signed receipt to candidate, baseline, scorer, and dataset **identifiers**; digest claims still require an external trusted evaluator to confirm the bytes.
+- `SQLiteNonceStore` provides local durable, atomic nonce consumption across process restarts. It is **not** a distributed replay store and has no off-host attestation.
+- Paired computations are bounded to 100,000 observations and avoid constructing factorial-scale integers.
+- Dedicated CI checks `test_cbvg*.py` on pull requests.
+
+### Non-negotiable remaining blockers
+
+- Do not deploy with the bundled HMAC fixture as independent verifier identity or as a production signing service.
+- Require `require_digests=True`, a durable store, independent key management, and independent dataset/scorer attestation in a future production profile.
+- The paired statistical assessment is not cryptographically bound to the signed CBVG receipt, and repeated testing can bias its results.
+- Human blind judging, APEX trace adapters, causal diagnosis, test contamination controls, longitudinal memory evaluation, promotion rollback, and operational monitoring remain unimplemented.
+- Do not interpret `admit=True` as an action grant, safe-to-merge signal, production readiness certification, or successful Turing test.
