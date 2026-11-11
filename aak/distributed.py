@@ -420,9 +420,13 @@ class VerifyingEffectBroker:
         audit_verifiers: Mapping[str, CapabilitySigner],
         replay_store: BrokerReplayStore,
         input_policies: Mapping[str, InputPolicy],
+        dispatch_fence: Callable[[GatewayGrant, int], None] | None = None,
     ) -> None:
         self.verifier = verifier
         self.provider = provider
+        if dispatch_fence is not None and not callable(dispatch_fence):
+            raise DistributedBoundaryError("broker_invalid_dispatch_fence")
+        self.dispatch_fence = dispatch_fence
         self.egress = EgressGuard(allowed_origins)
         self.audit_anchor_id = audit_anchor_id
         self.audit_verifiers = dict(audit_verifiers)
@@ -502,6 +506,13 @@ class VerifyingEffectBroker:
         self._verify_authorization_proof(
             authorization_event, authorization_receipt, grant, action_hash,
         )
+        # Optional broker-owned fence. It must atomically check the lease and
+        # durably reserve this exact transaction before ANY provider call.
+        if self.dispatch_fence is not None:
+            try:
+                self.dispatch_fence(grant, now)
+            except BaseException as exc:
+                raise DistributedBoundaryError("broker_dispatch_fence_denied") from exc
         if not self.replay_store.consume(grant.envelope.envelope_id, action_hash, now=now):
             raise DistributedBoundaryError("broker_replay_denied")
         try:

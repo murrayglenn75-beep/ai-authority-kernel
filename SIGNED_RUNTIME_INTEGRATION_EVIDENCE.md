@@ -1,0 +1,48 @@
+# Signed runtime integration evidence — 2026-10-10
+
+## Executed check
+
+GitHub Actions `agent-runtime-defensive-checks`, run #68:
+https://github.com/murrayglenn75-beep/ai-authority-kernel/actions/runs/38088994434
+
+The run completed successfully. Its step "Run signed AAK integration scenario" completed successfully after installing runtime dependencies.
+
+Integration source: `tests/test_runtime_integration.py`.
+
+The scenario reuses `DistributedServiceTests` genuine fixture:
+- Ed25519 signing keys, signed ToolManifest and ActionEnvelope
+- certificate-bound EdDSA OIDC identity fixture
+- strict OPA decision fixture
+- GatewayService-issued exact grant
+- ResourceExecutionService independent verifier
+- VerifyingEffectBroker with independent replay SQLite store
+- DurableAuditAnchor and signed chain verification
+- RuntimeCheckpointStore and BoundedAgent
+- deterministic fake provider (never live production credentials)
+
+### Verified assertions
+1. Matching model call dispatched to resource service and broker.
+2. Exactly one synthetic provider invocation; broker gets gateway envelope transaction ID.
+3. Audit chain passes verification; checkpoint ends completed.
+4. Resource denies consumed grant replay and provider call count remains one.
+5. Altered requested parameters are rejected before reaching the resource.
+
+## Critical limitations
+- Simulated provider, controlled local clock, OIDC/OPA fixture transport and local SQLite. This is **not live-provider** validation.
+- `ExactGrantBoundary` matches action, resource, audience and canonical parameters. The runtime-generated transaction hash and separately issued envelope transaction ID are not yet cryptographically bound together. This remains an integration gap.
+- AAK signed grant is prepared by fixture setup, not dynamically obtained from a deployed identity/policy service inside the model run.
+- The test inherits existing distributed unit checks; all passing asserts are local integration evidence, not independently deployed services.
+- No multi-host fencing, distributed crash reconciliation, actual provider idempotency check or production security certification is implied.
+- This PR remains draft pending threat-model review and extended fault-injection tests.
+
+## Next proof gates
+- Bind model runtime transaction to broker's signed transaction identity and test mismatch.
+- Execute dynamic GatewayService authorization with per-run identity and approval.
+- Run independently deployed process/service topology against a real provider sandbox.
+- Implement shared durable fencing and prove crash/restart/reconcile behavior.
+
+## Transaction identity binding hardening (October 10, later revision)
+`ExactGrantBoundary` now denies a GatewayGrant if its signed envelope transaction ID differs from the runtime checkpoint ID. The signed integration fixture issues a fresh grant through `GatewayService.authorize_mcp` with a new identity assertion and runtime transaction ID. The standalone regression includes a deliberately mismatched transaction ID and verifies it cannot reach the resource executor. This is an **equality check against signed data**; AAK resource and broker must still cryptographically validate the envelope and replay ledger. AAK's default gateway id_factory remains operator-configured, so callers MUST propagate the runtime ID when requesting a grant; mismatches fail closed. CI status must be checked separately.
+
+## Local concurrency and crash-journal checks
+Added `tests/test_runtime_journal_concurrency.py` and a dedicated CI step. Scenarios race two SQLite connections to insert an identical pending transaction, reopen the database after a simulated crash following pending, and verify that a run cannot finish while an effect is still pending. This is SQLite *single-host* concurrency, **not** multi-host fencing, true process kills or provider reconciliation.

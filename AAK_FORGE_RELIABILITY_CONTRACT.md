@@ -1,0 +1,124 @@
+# AAK–FORGE reliability contract (experimental v0.1)
+
+## Purpose
+Combine FORGE's durable scheduling with AAK's independent effect authorization.
+A model may propose an action but **cannot issue, extend, or consume its own
+authorization**. Resumed work must reacquire any required authority; approval
+is not inferred from checkpoint state.
+
+## Roles
+- Model adapter: operator-selected native provider tool calls or strict JSON.
+- FORGE: scheduler, checkpoint durability, worker fencing, time/tool/token budgets.
+- AAK gateway: trusted identity, signed policy decisions, narrow action envelope.
+- AAK resource owner: independently verifies grant, caller, action and approval.
+- Broker: isolated credentials, provider transaction idempotency and effect journal.
+- Reconciler: authenticated provider receipt/lookup, signed audit completion.
+No network/credential access from the model process is trusted.
+
+## Recovery transition contract
+| State | Event | Next | May dispatch? |
+|---|---|---|---|
+| New | Durable pre-effect checkpoint | PREPARED | Only after AAK authorization |
+| PREPARED | Broker accepts request | SUBMITTED | One bounded attempt |
+| SUBMITTED | Verified successful receipt | SUCCEEDED | No |
+| SUBMITTED | Verified pre-effect rejection | REJECTED | No automatic re-dispatch |
+| SUBMITTED | Timeout, crash, lost response | AMBIGUOUS | Never |
+| AMBIGUOUS | Authenticated exact provider lookup | SUCCEEDED/REJECTED | No |
+| AMBIGUOUS | Unknown, absent or mismatched evidence | QUARANTINED | Never |
+| Any | Approval revoked, stale policy, invalid identity | QUARANTINED | Never |
+
+**Never equate an absent provider record with proof of non-execution.**
+Repeated transaction IDs require provider-side idempotency or rejection, and
+client-side checkpointing cannot produce exactly-once provider effects alone.
+
+## Multiworker protocol (NOT IMPLEMENTED)
+Use a shared serializable authority store: CAS lease acquisition with
+monotonically increasing fencing tokens, strict expiry checked by *downstream*
+broker, renewal only by current owner, atomic dispatch journal, and no retries
+for uncertain effects. Workers must not derive a new transaction ID on recovery.
+A local SQLite journal is not sufficient for multi-host leasing.
+
+## Threat tests required
+- MITRE ATLAS: prompt injection tries to change destination, policy, tool,
+  approval identity, or suppress audit.
+- MITRE ATT&CK/CAPEC: replay, request confusion, duplicate calls and confused
+  deputy escalation.
+- OWASP agent/tool risks: untrusted tool output cannot issue authority.
+- malformed JSON: duplicate keys, fenced JSON, NaN/Infinity, huge payloads,
+  missing arguments, schema drift and nested ambiguous requests.
+- durability: worker killed before/after dispatch, DB outage, rollback, clock
+  skew, lost responses, concurrent races, revocation between plan and execution.
+- provider compatibility: native vs strict prompt JSON, sample-count confidence
+  intervals, error attribution, 429 Retry-After and 5xx, token costs.
+- traceability: signed run/step/call/transaction identifier, decision reason,
+  policy revision, provider outcome and audit anchor; redact secrets and PII.
+
+## Release gates
+1. All AAK existing unit and adversarial tests must pass on supported OSes.
+2. Native and prompt adapters tested against real providers and documented versions.
+3. Real resource verifier/isolated broker and authenticated reconciliation wired.
+4. Atomic multi-worker fencing demonstrated with fault injection.
+5. Approval revocation, timeout, restart and uncertain effects fail closed.
+6. Independently review architecture and threat model, and do not mark as
+   production-ready without operational evidence.
+
+## Scope of PR #6
+Experimental runtime, local journal, native-tool normalization and recovery
+decision contracts. No FORGE integration, live provider SDK, or multiworker
+recovery is implied by this document.
+
+## Experimental local fencing implementation (October 2026)
+`aak.worker_fencing.SQLiteFencingStore` and `tests/test_worker_fencing.py`
+now exercise single-database lease exclusion, monotonically increasing fencing
+tokens, stale-owner denial, exclusive pending dispatch reservations and lease
+takeover across separate SQLite connections. CI runs these checks.
+
+**Do not treat this as distributed exactly-once delivery.** A production
+resource and effect broker must atomically enforce fencing against a shared,
+highly available, serializable store. Current code neither wires this new
+store to `VerifyingEffectBroker`, nor fences an external API, nor resolves
+provider ambiguous commits. SQLite/WAL on a local disk is not a cluster
+coordination mechanism. Real infrastructure and provider-sandbox proof remain
+deployment gates.
+
+A further regression now starts a separate Python worker process, commits a lease, ends abruptly with `os._exit(0)` (no connection close), and has another process attempt takeover before/after lease expiry. This exercises local OS process termination and SQLite WAL persistence, but does not exercise remote network partitions or an external provider.
+
+## Opt-in broker-side fence hook (October 2026)
+`VerifyingEffectBroker` supports an optional `dispatch_fence(grant, now)` injected
+by its trusted host. It is invoked **after** signature, input-policy and signed
+authorization-audit checks, and **before** replay consumption and the external
+provider call. Any raised exception fails closed as
+`broker_dispatch_fence_denied`. `test_broker_fence_integration.py` uses the
+existing signed fixture, checks that an expired worker does not reach the fake
+provider, that a current worker reaches it once, and that replay is refused.
+It does not enable fencing automatically; installations must supply an
+authoritative checker. A lease reservation is not a distributed transaction
+with provider commit. The fence currently requires a local SQLite process and
+therefore cannot guarantee downstream stale-worker exclusion after a network
+partition. Production integration must bind reservation keys to signed
+provider operation IDs, use a shared strongly consistent store, and reconcile
+ambiguous effects.
+
+### Exact provider-operation fencing identity
+The broker integration fixture now reserves `grant.envelope.transaction_id` directly in the fencing journal and asserts the persisted reservation is identical to the operation ID passed to the provider. The journal permits bounded opaque signed transaction IDs because AAK's gateway issues IDs that need not be 64-character hexadecimal hashes. This protects against accidental reservation of an unrelated placeholder ID, but it does not by itself make the local fencing hook multi-host safe or provide atomicity between the local database and an external provider.
+
+## Shared PostgreSQL coordination prototype (October 2026)
+`aak.postgres_fencing.PostgresFencingStore` uses PostgreSQL's transaction-scoped
+advisory lock plus row-level locking for missing-row and established-lease
+serialization. Tokens increase across lease takeover; expiration is evaluated
+with **database clock_timestamp()**, not unsynchronized worker clocks. An
+independent transaction checks owner/token/expiry under row lock and inserts
+a globally unique pending provider transaction ID. A second attempt to
+reserve that ID is rejected. Tests in `test_postgres_fencing.py` race
+independent connections and validate stale worker denial/replay prevention.
+GitHub Actions provisions a disposable PostgreSQL 16 service.
+
+**Not production certification:** Neither the PostgreSQL prototype nor the
+test job deploy independent application hosts or inject network partitions.
+Provider commits and database reservations cannot commit atomically;
+`pending` requires authenticated provider reconciliation rather than
+automatic replay. The existing AAK broker's optional fence hook must be
+supplied with trusted run/worker/token context by its deploying service.
+Use a dedicated least-privilege coordination database; do not point the test
+at a production DSN. A passing PostgreSQL job is necessary evidence, not
+proof of globally exactly-once external effects.
