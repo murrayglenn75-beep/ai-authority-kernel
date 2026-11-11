@@ -1,0 +1,62 @@
+name: Security baseline
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  security-baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Scan tracked files for high-confidence secrets
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, re, subprocess, sys
+          rules = {
+              "private key": re.compile(rb"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
+              "GitHub token": re.compile(rb"(?:ghp_|gho_|ghu_|ghs_|ghr_|github_pat_)[A-Za-z0-9_]{20,}"),
+              "AWS access key": re.compile(rb"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"),
+              "Stripe secret": re.compile(rb"\b(?:sk_live_|rk_live_)[A-Za-z0-9]{12,}"),
+          }
+          paths = subprocess.check_output(["git", "ls-files", "-z"]).split(b"\0")
+          failures = []
+          for path_b in paths:
+              if not path_b:
+                  continue
+              path = pathlib.Path(os.fsdecode(path_b))
+              if not path.is_file():
+                  continue
+              if path.name == ".env" or (path.name.startswith(".env.") and not path.name.endswith((".example", ".sample", ".template"))):
+                  failures.append((str(path), "tracked environment file"))
+              try:
+                  with path.open("rb") as f:
+                      data = f.read(2_000_001)
+              except OSError:
+                  continue
+              if len(data) > 2_000_000:
+                  continue
+              for name, rule in rules.items():
+                  if rule.search(data):
+                      failures.append((str(path), name))
+          for path, rule in failures:
+              print(f"::error file={path}::Potential {rule}. Inspect without printing its value.")
+          if failures:
+              sys.exit(1)
+          print("High-confidence secret patterns: no matches in scanned files.")
+          PY
+      - name: Audit production npm dependencies (when lockfile exists)
+        shell: bash
+        run: |
+          if [ -f package-lock.json ]; then
+            npm audit --omit=dev --audit-level=high --ignore-scripts
+          else
+            echo "No root package-lock.json: npm dependency audit not applicable at repository root."
+          fi
