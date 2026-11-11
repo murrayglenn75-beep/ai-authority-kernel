@@ -1,0 +1,19 @@
+name: Action Preflight Pilot
+on:
+  pull_request:
+    paths:
+      - 'engineering/action_preflight.py'
+      - 'engineering/test_action_preflight.py'
+      - '.github/workflows/action-preflight-pilot.yml'
+  workflow_dispatch:
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest discover -s engineering -p 'test_action_preflight.py' -v
