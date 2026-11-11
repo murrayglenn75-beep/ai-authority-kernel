@@ -19,7 +19,7 @@ jobs:
           ref: 5b758ac4ce0c00feb038d0308a05e67cab47d9b9
           path: scanner
       - name: Prepare Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
       - name: Test gate enforcement behavior
