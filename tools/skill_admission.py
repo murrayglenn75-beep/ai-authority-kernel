@@ -12,8 +12,8 @@ from pathlib import Path
 MAX_FILE_BYTES = 1_000_000
 MAX_FILES = 200
 PATTERNS = {
-    "credential_access": re.compile(r"(?i)(\\.ssh/|\\.aws/credentials|\\.env\\b|api[_ -]?key|private[_ -]?key)"),
-    "remote_execution": re.compile(r"(?i)(curl\\s+[^\\n|]+\\|\\s*(?:ba)?sh|wget\\s+[^\\n|]+\\|\\s*(?:ba)?sh|invoke-expression|iex\\s*\\()"),
+    "credential_access": re.compile(r"(?i)(\.ssh/|\.aws/credentials|\.env\b|api[_ -]?key|private[_ -]?key)"),
+    "remote_execution": re.compile(r"(?i)(curl\s+[^\n|]+\|\s*(?:ba)?sh|wget\s+[^\n|]+\|\s*(?:ba)?sh|invoke-expression|iex\s*\()"),
     "exfiltration_hint": re.compile(r"(?i)(upload|post|send|exfiltrat).{0,100}(secret|token|credential|password)"),
     "instruction_override": re.compile(r"(?i)(ignore (?:all )?(?:previous|prior) instructions|disable (?:security|safety) checks)"),
 }
