@@ -37,7 +37,7 @@ class AgenticDataFlowBoundaryTests(unittest.TestCase):
                 derive_effect=lambda _resource, _params: {"operations": 1.0},
                 handler=lambda resource, params: {"resource": resource, "id": params["report_id"]},
             ),),
-            evidence_verifier=lambda _id: False,
+            evidence_verifier=lambda evidence_id: evidence_id == "report-approved-1",
             allow_test_time_override=True,
         )
         self.proposal = Proposal(
@@ -49,7 +49,7 @@ class AgenticDataFlowBoundaryTests(unittest.TestCase):
             resource="tenant-a/reports",
             parameters={"report_id": "report-1"},
             maximum_effect={"operations": 1},
-            evidence=(),
+            evidence=("report-approved-1",),
         )
 
     def test_baseline_authorized_request(self):
