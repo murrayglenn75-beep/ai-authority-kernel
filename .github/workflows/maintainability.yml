@@ -1,0 +1,23 @@
+name: Code ownership and maintainability
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  maintainability:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Test maintainability gate
+        run: python3 scripts/maintainability_gate.py --self-test
+      - name: Check changed source files
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 scripts/maintainability_gate.py --base "$BASE_SHA"
